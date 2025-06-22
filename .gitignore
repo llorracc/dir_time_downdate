@@ -24,3 +24,4 @@ Thumbs.db
 # Test directories
 test_output/
 tmp/
+prompts/
