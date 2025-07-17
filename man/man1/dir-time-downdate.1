@@ -1,0 +1,101 @@
+.TH DIR-TIME-DOWNDATE 1 "June 2025" "dir-time-downdate 0.1.0" "User Commands"
+.SH NAME
+dir-time-downdate \- update directory timestamps to match their newest content files
+.SH SYNOPSIS
+.B dir-time-downdate
+[\fIOPTIONS\fR] \fIDIRECTORY\fR...
+.SH DESCRIPTION
+.B dir-time-downdate
+recursively processes directories and updates each directory's modification time to reflect the newest file or subdirectory within it. This is useful for organizing file systems where directory timestamps should reflect the actual content activity rather than when the directory was created or last accessed.
+
+The tool processes directories from deepest to shallowest to ensure parent directories reflect the changes made to subdirectories.
+
+.SH OPTIONS
+.TP
+.B \-\-no\-cleanup
+Don't delete system files (.DS_Store, broken symlinks, etc.) before processing
+.TP
+.B \-\-non\-interactive
+Don't prompt for Finder window closure on macOS
+.TP
+.B \-v, \-\-verbose
+Show detailed progress information
+.TP
+.B \-\-create\-empty\-dsstore
+Create empty .DS_Store files with Unix epoch timestamps in all directories
+.TP
+.B \-h, \-\-help
+Display help message and exit
+
+.SH EXAMPLES
+.TP
+Update timestamps with verbose output:
+.B dir-time-downdate --verbose /Users/username/Documents
+.TP
+Process multiple directories without cleanup:
+.B dir-time-downdate --no-cleanup /path/dir1 /path/dir2
+.TP
+Create .DS_Store files with epoch timestamps:
+.B dir-time-downdate --create-empty-dsstore /path/to/photos
+
+.SH SYSTEM FILE MANAGEMENT
+The tool can optionally clean up system files before processing timestamps:
+
+.SS macOS
+.DS_Store, .AppleDouble, ._* files, .Spotlight-V100, .Trashes, .VolumeIcon.icns, etc.
+
+.SS Linux
+.directory (KDE), .thumbnails, .cache, .nautilus, Thumbs.db (Windows files on shares), desktop.ini
+
+.SS Windows
+Thumbs.db, desktop.ini, ehthumbs.db, $RECYCLE.BIN, System Volume Information
+
+.SH .DS_Store TEMPLATE
+When using \fB\-\-create\-empty\-dsstore\fR, the tool looks for a template .DS_Store file at:
+.IP \(bu 2
+dsstore/.DS_Store_master (in the project directory)
+.IP \(bu 2
+config/.DS_Store_master (fallback location)
+
+.SH EXCLUDED DIRECTORIES
+Version control directories are automatically excluded from processing:
+.BR .git ,
+.BR .svn ,
+.BR .hg ,
+.BR .bzr ,
+.BR CVS ,
+.BR _darcs ,
+.BR .fossil-settings
+
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+Error (invalid arguments, missing directories, etc.)
+
+.SH REQUIREMENTS
+.IP \(bu 2
+Unix-like operating system (macOS, Linux, BSD)
+.IP \(bu 2
+Zsh shell
+.IP \(bu 2
+Standard Unix utilities: find, stat, touch
+.IP \(bu 2
+Optional: GNU find (gfind) on macOS for better performance
+
+.SH AUTHOR
+Christopher Carroll <dir-downdate@llorracc.org>
+
+.SH COPYRIGHT
+Copyright (c) 2025 Christopher Carroll. Licensed under the MIT License.
+
+.SH SEE ALSO
+.BR find (1),
+.BR stat (1),
+.BR touch (1),
+.BR zsh (1)
+
+.SH BUGS
+Report bugs at: https://github.com/llorracc/dir-time-downdate/issues 

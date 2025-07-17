@@ -117,19 +117,37 @@ if [[ "$CREATE_EMPTY_DSSTORE" == "true" ]]; then
     log_verbose "Creating empty .DS_Store files in all directories..."
     
     # Use Unix epoch .DS_Store file as template (all timestamps set to epoch 0)
-    local source_dsstore="/tmp/test_all_epoch_0/.DS_Store"
+    # Look for template file in standard system locations only
+    local source_dsstore=""
+    
+    # Try system-wide installation first, then user installations
+    if [[ -f "/usr/local/share/dir-time-downdate/.DS_Store_master" ]]; then
+        source_dsstore="/usr/local/share/dir-time-downdate/.DS_Store_master"
+    elif [[ -f "$HOME/.local/share/dir-time-downdate/.DS_Store_master" ]]; then
+        source_dsstore="$HOME/.local/share/dir-time-downdate/.DS_Store_master"
+    elif [[ -f "$HOME/share/dir-time-downdate/.DS_Store_master" ]]; then
+        source_dsstore="$HOME/share/dir-time-downdate/.DS_Store_master"
+    else
+        echo "Error: .DS_Store template not found. Expected at one of:" >&2
+        echo "  /usr/local/share/dir-time-downdate/.DS_Store_master (system install)" >&2
+        echo "  ~/.local/share/dir-time-downdate/.DS_Store_master (user install)" >&2
+        echo "  ~/share/dir-time-downdate/.DS_Store_master (home install)" >&2
+        echo "" >&2
+        echo "If you recently installed dir-time-downdate, the template files may not have been" >&2
+        echo "installed correctly. Please reinstall using one of:" >&2
+        echo "  sudo ./install.sh                 # System-wide installation" >&2
+        echo "  ./install.sh --user               # User installation" >&2
+        echo "  ./install.sh --home               # Home directory installation" >&2
+        exit 1
+    fi
+    
     local template_file="/tmp/.dsstore_epoch_template_$$"
     
-    if [[ -f "$source_dsstore" ]]; then
-        log_verbose "Using Unix epoch .DS_Store file as template (all timestamps: Dec 31 1969)..."
-        if cp -p "$source_dsstore" "$template_file" 2>/dev/null; then
-            log_verbose "Template created successfully - no system time changes needed"
-        else
-            echo "Error: Could not copy real .DS_Store template file" >&2
-            exit 1
-        fi
+    log_verbose "Using .DS_Store template: $source_dsstore"
+    if cp -p "$source_dsstore" "$template_file" 2>/dev/null; then
+        log_verbose "Template created successfully - using project template file"
     else
-        echo "Error: Unix epoch .DS_Store template not found at $source_dsstore" >&2
+        echo "Error: Could not copy .DS_Store template file from $source_dsstore" >&2
         exit 1
     fi
     
