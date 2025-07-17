@@ -1,27 +1,245 @@
-# macOS
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# =============================================================================
+# .gitignore for dir-time-downdate
+# =============================================================================
+# This file specifies intentionally untracked files that Git should ignore.
+# See: https://git-scm.com/docs/gitignore
+
+# =============================================================================
+# PROJECT-SPECIFIC PATTERNS
+# =============================================================================
+
+# Development and documentation tools
+.specstory/                    # SpecStory development documentation
+prompts                        # Prompt files (file)
+prompts/                       # Prompt files (directory)
+prompts_local/                 # Local/personal prompts directory
+
+# Configuration files (user-specific)
+.dir-time-downdate.conf        # User-specific configuration
+dir-time-downdate.conf         # Alternative configuration location
+
+# Test and development output
+test_output/                   # Test artifacts and output
+tmp/                          # Temporary working directory
+
+# =============================================================================
+# CACHE FILES AND DIRECTORIES
+# =============================================================================
+
+# General caches
+*cache*/                       # Any directory with "cache" in the name
+.cache/                        # Hidden cache directories
+cache/                         # Standard cache directory
+*.cache                        # Cache files
+
+# Package manager caches
+node_modules/                  # Node.js packages
+.npm/                         # npm cache
+.yarn/                        # Yarn cache
+.pnpm-store/                  # pnpm cache
+pip-cache/                    # Python pip cache
+.pip/                         # pip configuration and cache
+__pycache__/                  # Python bytecode cache
+*.pyc                         # Python compiled files
+*.pyo                         # Python optimized files
+
+# Build system caches
+.gradle/                      # Gradle cache
+.sbt/                         # SBT cache
+target/                       # Maven/SBT target directory
+
+# Language-specific caches
+.rubygems/                    # Ruby gems cache
+vendor/                       # Ruby/PHP vendor directory
+composer.lock                 # PHP Composer lock file (if not needed)
+
+# =============================================================================
+# MACOS SYSTEM FILES
+# =============================================================================
+
+.DS_Store                     # macOS folder metadata
+.DS_Store?                    # macOS folder metadata variant
+._*                           # macOS resource forks
+.Spotlight-V100               # macOS Spotlight index
+.Trashes                      # macOS trash files
+.DocumentRevisions-V100       # macOS document revisions
+.fseventsd                    # macOS file system events
+.TemporaryItems               # macOS temporary items
+.VolumeIcon.icns             # macOS volume icons
+.com.apple.timemachine.donotpresent  # Time Machine exclusion
+Network Trash Folder          # Network mounted volume trash
+Temporary Items               # Network mounted volume temp files
+.apdisk                       # macOS disk image files
+
+# =============================================================================
+# WINDOWS SYSTEM FILES
+# =============================================================================
+
+Thumbs.db                     # Windows thumbnail cache
+ehthumbs.db                   # Windows enhanced thumbnails
+Desktop.ini                   # Windows folder configuration
+$RECYCLE.BIN/                # Windows recycle bin
+
+# =============================================================================
+# IDE AND EDITOR FILES
+# =============================================================================
+
+# Visual Studio Code
+.vscode/                      # VS Code settings (unless shared)
+*.code-workspace              # VS Code workspace files
+
+# JetBrains IDEs
+.idea/                        # IntelliJ IDEA, PyCharm, etc.
+*.iml                         # IntelliJ module files
+
+# Vim/Neovim
+*.swp                         # Vim swap files
+*.swo                         # Vim swap files
+*.swn                         # Vim swap files
+.netrwhist                    # Vim netrw history
+
+# Emacs
+*~                            # Emacs backup files
+\#*\#                         # Emacs lock files
+.#*                           # Emacs lock files
+
+# Sublime Text
+*.sublime-project             # Sublime Text project files
+*.sublime-workspace           # Sublime Text workspace files
+
+# =============================================================================
+# BUILD AND DISTRIBUTION
+# =============================================================================
+
+# Build directories
+dist/                         # Distribution files
+build/                        # Build output
+pkg/                          # Package files
+out/                          # Output directory
+
+# Package files
+*.deb                         # Debian packages
+*.rpm                         # RPM packages
+*.pkg                         # macOS packages
+*.dmg                         # macOS disk images
+*.tar.gz                      # Compressed archives
+*.tar.bz2                     # Compressed archives
+*.zip                         # ZIP archives
+
+# =============================================================================
+# TEMPORARY AND BACKUP FILES
+# =============================================================================
 
 # Temporary files
-*~
-*.tmp
-*.temp
+*.tmp                         # Temporary files
+*.temp                        # Temporary files
+.tmp/                         # Temporary directories
+temp/                         # Temporary directories
+
+# Backup files
+*.bak                         # Backup files
+*.backup                      # Backup files
+*.old                         # Old file versions
+*~                            # Editor backup files
+
+# =============================================================================
+# LOG AND DEBUGGING FILES
+# =============================================================================
 
 # Log files
-*.log
+*.log                         # General log files
+logs/                         # Log directories
+*.out                         # Output files
+*.err                         # Error files
 
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
+# Debug files
+*.debug                       # Debug files
+core                          # Core dumps
+core.*                        # Core dumps with process ID
 
-# Test directories
-test_output/
-tmp/
-prompts/
+# Coverage and profiling
+coverage/                     # Coverage reports
+*.coverage                    # Coverage data files
+htmlcov/                      # HTML coverage reports
+.coverage                     # Python coverage data
+*.prof                        # Profiling data
+
+# =============================================================================
+# SECURITY AND CREDENTIALS
+# =============================================================================
+
+# Environment files
+.env                          # Environment variables
+.env.local                    # Local environment variables
+.env.*.local                  # Environment-specific files
+
+# SSH and certificates
+*.pem                         # SSL certificates/keys
+*.key                         # Private keys
+*.crt                         # Certificates
+id_rsa                        # SSH private key
+id_dsa                        # SSH private key
+id_ecdsa                      # SSH private key
+id_ed25519                    # SSH private key
+
+# =============================================================================
+# DOCUMENTATION GENERATION
+# =============================================================================
+
+# Generated documentation
+docs/_build/                  # Sphinx build output
+*.pdf                         # Generated PDF files (unless tracked)
+*.ps                          # PostScript files
+*.dvi                         # DVI files
+
+# Man page generation
+*.man.tmp                     # Temporary man files
+man_build/                    # Man page build directory
+*.groff                       # Generated groff files
+
+# =============================================================================
+# SHELL SCRIPT DEVELOPMENT
+# =============================================================================
+
+# Shell script development
+*.sh.bak                      # Shell script backups
+.shellcheck*                  # ShellCheck cache/config
+debug_output/                 # Debug script output
+trace_logs/                   # Shell tracing logs
+
+# =============================================================================
+# PROJECT-SPECIFIC DEVELOPMENT
+# =============================================================================
+
+# Development and testing
+test_results/                 # Test execution results
+benchmark_results/            # Performance benchmark data
+.testing/                     # Testing configuration
+sample_dirs/                  # Sample directories for testing
+
+# Installation artifacts
+installed_files.txt           # Installation tracking
+installation.log              # Installation logs
+
+# User data (if tool processes user directories)
+user_configs/                 # User-specific configurations
+processed_directories.log    # Log of processed directories
+timestamp_changes.log        # Log of timestamp changes
+
+# =============================================================================
+# PACKAGING AND RELEASE
+# =============================================================================
+
+# Additional packaging artifacts
+*.tar.xz                      # Additional archive formats
+*.sig                         # GPG signatures for releases
+checksums.txt                 # Release checksums
+
+# Release preparation
+release_notes_draft.md        # Draft release notes
+version_bump.txt              # Version bump tracking
+release_artifacts/            # Release preparation files
+
+# =============================================================================
+# END OF .gitignore
+# =============================================================================
