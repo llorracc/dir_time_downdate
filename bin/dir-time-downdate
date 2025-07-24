@@ -324,18 +324,6 @@ done
 # Load config before main processing
 load_config
 
-# Automatic template selection fallback
-if [[ -z "$DSSTORE_TEMPLATE" ]]; then
-    log_verbose "No user template configured. Checking for repository default..."
-    local script_dir
-    script_dir=$(cd "$(dirname "$0")" &>/dev/null && pwd)
-    local repo_template="$script_dir/../dsstore/.DS_Store_master"
-    if [[ -f "$repo_template" ]]; then
-        DSSTORE_TEMPLATE="$repo_template"
-        log_info "Using default template from repository: $repo_template"
-    fi
-fi
-
 # macOS-specific: prompt to close Finder windows
 if [[ "$INTERACTIVE_MODE" == "true" && "$OSTYPE" == darwin* ]]; then
     if pgrep -qxF "Finder" >/dev/null 2>&1; then

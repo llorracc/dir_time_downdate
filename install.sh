@@ -131,46 +131,48 @@ install_program() {
         info "✓ Installed extended documentation to $DOCDIR/doc/"
     fi
     
-    # Install default .DS_Store template to user config (for non-system installs)
-    if [[ "$INSTALL_SYSTEM_CONFIG" != "true" ]]; then
-        info "Installing default .DS_Store template..."
-        local user_config_dir=""
-        
-        # Determine user config directory based on installation type
-        if [[ "$PREFIX" == "$HOME/.local" ]]; then
-            user_config_dir="$HOME/.config/dir-time-downdate"
-        elif [[ "$PREFIX" == "$HOME" ]]; then
-            user_config_dir="$HOME/.config/dir-time-downdate"
-        else
-            # For system-wide installs, create a default user template directory
-            user_config_dir="$SHAREDIR/templates"
-        fi
-        
-        mkdir -p "$user_config_dir"
-        
-        if [[ -f "dsstore/.DS_Store_master" ]]; then
-            cp "dsstore/.DS_Store_master" "$user_config_dir/.DS_Store_template"
-            chmod 644 "$user_config_dir/.DS_Store_template"
-            info "✓ Installed default .DS_Store template to $user_config_dir/.DS_Store_template"
-            
-            # For user installs, create config file pointing to template
-            if [[ "$user_config_dir" == "$HOME/.config/dir-time-downdate" ]]; then
-                cat > "$user_config_dir/config" << EOF
-# dir-time-downdate user configuration
-# Generated on $(date)
-
-# Default .DS_Store template file path
-DSSTORE_TEMPLATE=$user_config_dir/.DS_Store_template
-EOF
-                chmod 644 "$user_config_dir/config"
-                info "✓ Created user config file: $user_config_dir/config"
-            fi
-        else
-            warn "Default .DS_Store template not found, skipping template installation"
-        fi
-    fi
-    
     info "✓ Installed documentation to $DOCDIR/"
+}
+
+# Install default user configuration and template if not already present
+install_user_config_and_template() {
+    local user_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dir-time-downdate"
+    local user_config_file="$user_config_dir/config"
+    local default_template_source="dsstore/.DS_Store_master"
+    local default_template_dest="$user_config_dir/.DS_Store_template"
+
+    # Only proceed if the user does not already have a config file
+    if [[ -f "$user_config_file" ]]; then
+        info "User configuration file already exists. Skipping default template installation."
+        return
+    fi
+
+    if [[ ! -f "$default_template_source" ]]; then
+        warn "Default template source not found. Skipping template installation."
+        return
+    fi
+
+    info "No user configuration found. Installing default .DS_Store template..."
+    
+    mkdir -p "$user_config_dir"
+    
+    cp "$default_template_source" "$default_template_dest"
+    chmod 644 "$default_template_dest"
+    info "✓ Installed default template to $default_template_dest"
+
+    # Create the config file pointing to the new default template
+    cat > "$user_config_file" << EOF
+# dir-time-downdate user configuration
+# Auto-generated on $(date)
+#
+# This file was created by the installer to provide a default .DS_Store template.
+# You can modify this file to point to a different template or run the command:
+# dir-time-downdate --set-template /path/to/your/template
+
+DSSTORE_TEMPLATE="$default_template_dest"
+EOF
+    chmod 644 "$user_config_file"
+    info "✓ Created default user config file: $user_config_file"
 }
 
 # Install system-wide configuration directory
@@ -223,6 +225,7 @@ main() {
     
     check_dependencies
     install_program
+    install_user_config_and_template # Always check for user config
     install_system_config
     
     echo
