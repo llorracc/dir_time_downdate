@@ -290,7 +290,29 @@ should_manage_dsstore() {
     return 1
 }
 
+check_for_version_mismatch() {
+    # If we are in the dev directory and the script running is NOT the one in ./bin...
+    local executing_script_path
+    executing_script_path=$(realpath "$0")
+    local local_dev_path
+    local_dev_path="$(pwd)/bin/dir-time-downdate"
+
+    if [[ "$(basename "$(pwd)")" == "dir-time-downdate" && "$executing_script_path" != "$local_dev_path" ]]; then
+        # ...and the content is different...
+        if ! diff -q "$executing_script_path" "$local_dev_path" >/dev/null 2>&1; then
+            log_error "Version Mismatch Detected!"
+            log_error "You are running the installed command ($executing_script_path) from within the dev directory, which has a different local version."
+            log_error ""
+            log_error "Run the local version with:  ./bin/dir-time-downdate"
+            log_error "Or update the installed version with: sudo ./install.sh"
+            exit 1
+        fi
+    fi
+}
+
 # --- Main Execution Logic ---
+
+check_for_version_mismatch
 
 # Handle special actions that exit before processing directories
 if [[ "$SHOW_HELP" == "true" ]]; then
