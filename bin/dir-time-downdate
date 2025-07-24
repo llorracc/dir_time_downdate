@@ -361,40 +361,57 @@ if should_manage_dsstore "$@"; then
 fi
 
 # Main Processing Loop
+local SCRIPT_WAS_DRY_RUN=$DRY_RUN
+local CHANGES_WOULD_BE_MADE=false
+
 for dir in "$@"; do
     log_verbose "Processing directory: $dir"
-    # Using zsh globbing for efficiency
-    setopt local_options nullglob
-    local all_items=("$dir"/**/*(D.))
-    STATS_FILES_SCANNED=$((STATS_FILES_SCANNED + ${#all_items[@]}))
 
-    # Find newest file or directory
-    local newest_file=""
-    local newest_time=0
-    for item in "${all_items[@]}"; do
-        if [[ -e "$item" ]]; then
-            local item_time
-            item_time=$(stat -f %m "$item")
+    # Process directories in depth-first order
+    while IFS= read -r directory; do
+        [[ -d "$directory" ]] || continue # Skip if directory no longer exists
+
+        # Find the newest file or subdirectory within the current directory (not recursively)
+        local newest_file=""
+        local newest_time=0
+        
+        while IFS= read -r item; do
+            STATS_FILES_SCANNED=$((STATS_FILES_SCANNED + 1))
+            typeset -i item_time=0 >/dev/null 2>&1
+            item_time=$(stat -f %m "$item") >/dev/null 2>&1
             if (( item_time > newest_time )); then
                 newest_time=$item_time
                 newest_file=$item
             fi
-        fi
-    done
-
-    # Update directory timestamp
-    if [[ -n "$newest_file" ]]; then
-        local parent_dir
-        parent_dir=$(dirname "$newest_file")
-        if [[ "$DRY_RUN" == "true" ]]; then
-            log_info "[DRY RUN] Would update '$parent_dir' to match '$newest_file'"
+        done < <(find "$directory" -maxdepth 1 -mindepth 1 -not -name ".git" -not -name ".DS_Store")
+        
+        # Update directory timestamp if we found files
+        if [[ -n "$newest_file" ]]; then
+            typeset -i dir_time=0 >/dev/null 2>&1
+            dir_time=$(stat -f %m "$directory") >/dev/null 2>&1
+            
+            # Only update if the timestamps are different
+            if (( newest_time != dir_time )); then
+                CHANGES_WOULD_BE_MADE=true
+                if [[ "$DRY_RUN" == "true" ]]; then
+                    log_info "[DRY RUN] Would update '$directory' to match '$newest_file'"
+                else
+                    touch -r "$newest_file" "$directory"
+                    log_verbose "Updated '$directory' to match '$newest_file'"
+                    STATS_DIRS_UPDATED=$((STATS_DIRS_UPDATED + 1))
+                fi
+            else
+                log_verbose "Timestamp for '$directory' is already correct."
+            fi
         else
-            touch -r "$newest_file" "$parent_dir"
-            log_verbose "Updated '$parent_dir' to match '$newest_file'"
-            STATS_DIRS_UPDATED=$((STATS_DIRS_UPDATED + 1))
+            log_verbose "Directory '$directory' is empty, leaving timestamp unchanged."
         fi
-    fi
+    done < <(find "$dir" -depth -type d -not -path '*/.git/*' -not -name ".git")
 done
+
+if [[ "$SCRIPT_WAS_DRY_RUN" == "true" && "$CHANGES_WOULD_BE_MADE" == "false" ]]; then
+    log_info "All directory timestamps are already up to date. No changes needed."
+fi
 
 log_success "Processing complete."
 log_info "Directories processed: $#."
