@@ -5,7 +5,7 @@
 set -e
 
 PROGRAM="dir-time-downdate"
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 # Default installation prefix
 PREFIX="${PREFIX:-/usr/local}"
@@ -13,6 +13,9 @@ BINDIR="${BINDIR:-$PREFIX/bin}"
 MANDIR="${MANDIR:-$PREFIX/share/man}"
 DOCDIR="${DOCDIR:-$PREFIX/share/doc/$PROGRAM}"
 SHAREDIR="${SHAREDIR:-$PREFIX/share/$PROGRAM}"
+
+# Configuration options
+INSTALL_SYSTEM_CONFIG=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -41,16 +44,20 @@ Installation script for $PROGRAM
 Usage: $0 [OPTIONS]
 
 Options:
-  -h, --help    Show this help message
-  --prefix DIR  Install to DIR (default: /usr/local)
-  --user        Install to user directory (~/.local)
-  --home        Install to ~/bin (traditional user directory)
+  -h, --help        Show this help message
+  --prefix DIR      Install to DIR (default: /usr/local)
+  --user            Install to user directory (~/.local)
+  --home            Install to ~/bin (traditional user directory)
+  --tools           Install to /opt/tools (alternative system location)
+  --system-config   Create system-wide config directory (/etc/xdg/dir-time-downdate)
 
 Examples:
-  $0                    # Install to /usr/local (requires sudo)
-  $0 --user             # Install to ~/.local
-  $0 --home             # Install to ~/bin
-  sudo $0 --prefix=/usr # Install to /usr
+  $0                          # Install to /usr/local (requires sudo)
+  $0 --user                   # Install to ~/.local
+  $0 --home                   # Install to ~/bin
+  $0 --tools                  # Install to /opt/tools (requires sudo)
+  sudo $0 --prefix=/usr       # Install to /usr
+  sudo $0 --system-config     # Install with system-wide config directory
 
 EOF
 }
@@ -124,17 +131,88 @@ install_program() {
         info "✓ Installed extended documentation to $DOCDIR/doc/"
     fi
     
-    # Install .DS_Store template files to share directory (program data)
-    if [[ -d "dsstore" ]]; then
-        # Copy all files including hidden ones
-        (cd dsstore && cp -r . "$SHAREDIR/")
-        # Set proper permissions: 644 for files, 755 for directories
-        find "$SHAREDIR" -type f -exec chmod 644 {} \;
-        find "$SHAREDIR" -type d -exec chmod 755 {} \;
-        info "✓ Installed .DS_Store templates to $SHAREDIR/"
+    # Install default .DS_Store template to user config (for non-system installs)
+    if [[ "$INSTALL_SYSTEM_CONFIG" != "true" ]]; then
+        info "Installing default .DS_Store template..."
+        local user_config_dir=""
+        
+        # Determine user config directory based on installation type
+        if [[ "$PREFIX" == "$HOME/.local" ]]; then
+            user_config_dir="$HOME/.config/dir-time-downdate"
+        elif [[ "$PREFIX" == "$HOME" ]]; then
+            user_config_dir="$HOME/.config/dir-time-downdate"
+        else
+            # For system-wide installs, create a default user template directory
+            user_config_dir="$SHAREDIR/templates"
+        fi
+        
+        mkdir -p "$user_config_dir"
+        
+        if [[ -f "dsstore/.DS_Store_master" ]]; then
+            cp "dsstore/.DS_Store_master" "$user_config_dir/.DS_Store_template"
+            chmod 644 "$user_config_dir/.DS_Store_template"
+            info "✓ Installed default .DS_Store template to $user_config_dir/.DS_Store_template"
+            
+            # For user installs, create config file pointing to template
+            if [[ "$user_config_dir" == "$HOME/.config/dir-time-downdate" ]]; then
+                cat > "$user_config_dir/config" << EOF
+# dir-time-downdate user configuration
+# Generated on $(date)
+
+# Default .DS_Store template file path
+DSSTORE_TEMPLATE=$user_config_dir/.DS_Store_template
+EOF
+                chmod 644 "$user_config_dir/config"
+                info "✓ Created user config file: $user_config_dir/config"
+            fi
+        else
+            warn "Default .DS_Store template not found, skipping template installation"
+        fi
     fi
     
     info "✓ Installed documentation to $DOCDIR/"
+}
+
+# Install system-wide configuration directory
+install_system_config() {
+    if [[ "$INSTALL_SYSTEM_CONFIG" == "true" ]]; then
+        info "Installing system-wide configuration directory..."
+        
+        local system_config_dir="/etc/xdg/dir-time-downdate"
+        
+        # Create the directory
+        mkdir -p "$system_config_dir"
+        
+        # Install default .DS_Store template
+        if [[ -f "dsstore/.DS_Store_master" ]]; then
+            cp "dsstore/.DS_Store_master" "$system_config_dir/.DS_Store_template"
+            chmod 644 "$system_config_dir/.DS_Store_template"
+            info "✓ Installed default .DS_Store template to $system_config_dir/.DS_Store_template"
+        else
+            warn "Default .DS_Store template not found, skipping template installation"
+        fi
+        
+        # Create a system configuration file pointing to the installed template
+        cat > "$system_config_dir/config" << EOF
+# dir-time-downdate system-wide configuration
+# This file provides default settings for all users
+# Users can override these settings in ~/.config/dir-time-downdate/config
+
+# Default .DS_Store template file path
+DSSTORE_TEMPLATE=$system_config_dir/.DS_Store_template
+
+# Example: Set a corporate template
+# DSSTORE_TEMPLATE=/opt/shared-templates/.DS_Store_corporate
+EOF
+        
+        chmod 644 "$system_config_dir/config"
+        
+        info "✓ Created system config directory: $system_config_dir"
+        info "✓ Created config file with default template: $system_config_dir/config"
+        echo
+        info "The tool now works out-of-the-box with the default template."
+        info "Users can customize with: $PROGRAM --set-template /path/to/custom/template"
+    fi
 }
 
 # Main installation process
@@ -145,6 +223,7 @@ main() {
     
     check_dependencies
     install_program
+    install_system_config
     
     echo
     info "Installation complete"
@@ -195,6 +274,18 @@ while [[ $# -gt 0 ]]; do
             MANDIR="$HOME/share/man"
             DOCDIR="$HOME/share/doc/$PROGRAM"
             SHAREDIR="$HOME/share/$PROGRAM"
+            shift
+            ;;
+        --tools)
+            PREFIX="/opt/tools"
+            BINDIR="$PREFIX/bin"
+            MANDIR="$PREFIX/share/man"
+            DOCDIR="$PREFIX/share/doc/$PROGRAM"
+            SHAREDIR="$PREFIX/share/$PROGRAM"
+            shift
+            ;;
+        --system-config)
+            INSTALL_SYSTEM_CONFIG=true
             shift
             ;;
         *)

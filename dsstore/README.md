@@ -1,6 +1,6 @@
-# .DS_Store Master Configuration
+# .DS_Store Template Example
 
-This directory implements a centralized .DS_Store management system using symbolic links to maintain consistent Finder preferences while enabling centralized control.
+This directory demonstrates a centralized .DS_Store management system using symbolic links. This is an example of the advanced symlink-based approach described in the user-provided template system.
 
 ## How It Works
 

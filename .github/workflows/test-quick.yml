@@ -1,0 +1,42 @@
+name: Quick Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  quick-test:
+    name: Quick Test (macOS)
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Make scripts executable
+      run: |
+        chmod +x bin/dir-time-downdate
+        chmod +x tests/test_functionality.sh
+        
+    - name: Run basic syntax check
+      run: |
+        zsh -n bin/dir-time-downdate
+        echo "✓ Syntax check passed"
+        
+    - name: Test help command
+      run: |
+        ./bin/dir-time-downdate --help
+        
+    - name: Run quick functional test
+      run: |
+        # Create simple test directory
+        mkdir -p /tmp/quick-test/{sub1,sub2}
+        echo "test1" > /tmp/quick-test/file1.txt
+        echo "test2" > /tmp/quick-test/sub1/file2.txt
+        
+        # Run the script
+        ./bin/dir-time-downdate --verbose --non-interactive /tmp/quick-test
+        
+        echo "✓ Quick test completed successfully" 

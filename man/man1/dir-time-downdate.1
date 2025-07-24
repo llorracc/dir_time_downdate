@@ -1,4 +1,4 @@
-.TH DIR-TIME-DOWNDATE 1 "June 2025" "dir-time-downdate 0.1.0" "User Commands"
+.TH DIR-TIME-DOWNDATE 1 "July 2025" "dir-time-downdate 0.2.0" "User Commands"
 .SH NAME
 dir-time-downdate \- update directory timestamps to match their newest content files
 .SH SYNOPSIS
@@ -10,7 +10,10 @@ recursively processes directories and updates each directory's modification time
 
 The tool processes directories from deepest to shallowest to ensure parent directories reflect the changes made to subdirectories.
 
+The tool uses a user-provided template system for .DS_Store files and follows the XDG Base Directory Specification for configuration management.
+
 .SH OPTIONS
+.SS General Options
 .TP
 .B \-\-no\-cleanup
 Don't delete system files (.DS_Store, broken symlinks, etc.) before processing
@@ -21,13 +24,76 @@ Don't prompt for Finder window closure on macOS
 .B \-v, \-\-verbose
 Show detailed progress information
 .TP
-.B \-\-create\-empty\-dsstore
-Create empty .DS_Store files with Unix epoch timestamps in all directories
+.B \-\-dry\-run
+Show what would be done without making changes
+.TP
+.B \-\-show\-progress
+Display progress indicators during operation
+.TP
+.B \-\-atomic
+Use atomic operations for safer updates
+.TP
+.B \-\-show\-stats
+Display statistics after completion
 .TP
 .B \-h, \-\-help
 Display help message and exit
+.TP
+.B \-\-version
+Display version information and exit
+
+.SS Template Configuration Options
+.TP
+.B \-\-create\-empty\-dsstore
+Create .DS_Store files using your configured template
+.TP
+.B \-\-template \fIPATH\fR
+Use specific .DS_Store template file for this session only
+.TP
+.B \-\-set\-template \fIPATH\fR
+Save .DS_Store template path to user configuration for future use
+.TP
+.B \-\-show\-template
+Show current template configuration and hierarchy
+
+.SS Timestamp Options
+.TP
+.B \-\-timestamps \fITYPE\fR
+Comma-separated list of timestamp types to update: all, mtime, atime, ctime (default: all)
+
+.SS Pattern Matching Options
+.TP
+.B \-\-exclude \fIPATTERN\fR
+Exclude files/directories matching pattern (can be used multiple times)
+.TP
+.B \-\-include \fIPATTERN\fR
+Include only files/directories matching pattern (can be used multiple times)
+
+.SH CONFIGURATION
+.B dir-time-downdate
+follows the XDG Base Directory Specification for configuration management with the following hierarchy (highest to lowest priority):
+
+.IP 1. 4
+Command line options (\fB\-\-template\fR)
+.IP 2. 4
+Environment variable (\fBDSSTORE_TEMPLATE_ENV\fR)
+.IP 3. 4
+User configuration: \fI~/.config/dir-time-downdate/config\fR
+.IP 4. 4
+System configuration: \fI/etc/xdg/dir-time-downdate/config\fR
+
+.SS Configuration File Format
+Configuration files use simple key=value format:
+.PP
+.nf
+.RS
+# Default .DS_Store template file path
+DSSTORE_TEMPLATE=/path/to/your/.DS_Store
+.RE
+.fi
 
 .SH EXAMPLES
+.SS Basic Usage
 .TP
 Update timestamps with verbose output:
 .B dir-time-downdate --verbose /Users/username/Documents
@@ -35,8 +101,33 @@ Update timestamps with verbose output:
 Process multiple directories without cleanup:
 .B dir-time-downdate --no-cleanup /path/dir1 /path/dir2
 .TP
-Create .DS_Store files with epoch timestamps:
-.B dir-time-downdate --create-empty-dsstore /path/to/photos
+Dry run to see what would be changed:
+.B dir-time-downdate --dry-run --verbose ~/Downloads
+
+.SS Template Configuration
+.TP
+Set up your template (one-time):
+.B dir-time-downdate --set-template ~/Documents/.DS_Store
+.TP
+Basic usage (automatic .DS_Store management):
+.B dir-time-downdate ~/Projects
+.TP
+Check current configuration:
+.B dir-time-downdate --show-template
+.TP
+Use specific template for one operation:
+.B dir-time-downdate --template ~/custom/.DS_Store /tmp/test
+
+.SS Advanced Usage
+.TP
+Update only modification times:
+.B dir-time-downdate --timestamps mtime ~/Documents
+.TP
+Exclude specific patterns:
+.B dir-time-downdate --exclude "*.tmp" --exclude ".cache" ~/workspace
+.TP
+Show progress and statistics:
+.B dir-time-downdate --show-progress --show-stats --verbose ~/large-directory
 
 .SH SYSTEM FILE MANAGEMENT
 The tool can optionally clean up system files before processing timestamps:
@@ -50,12 +141,26 @@ The tool can optionally clean up system files before processing timestamps:
 .SS Windows
 Thumbs.db, desktop.ini, ehthumbs.db, $RECYCLE.BIN, System Volume Information
 
-.SH .DS_Store TEMPLATE
-When using \fB\-\-create\-empty\-dsstore\fR, the tool looks for a template .DS_Store file at:
+.SH TEMPLATE SYSTEM
+The tool uses a user-provided template system for .DS_Store files. Users must provide their own template files rather than using pre-installed templates.
+
+.SS Getting Started with Templates
+.IP 1. 4
+Find an existing .DS_Store file: \fBfind ~ -name ".DS_Store" -type f | head -5\fR
+.IP 2. 4
+Configure it as your template: \fBdir-time-downdate --set-template /path/to/.DS_Store\fR
+.IP 3. 4
+Use it: \fBdir-time-downdate /target/dir\fR
+
+.SS Template File Sources
 .IP \(bu 2
-dsstore/.DS_Store_master (in the project directory)
+Any existing .DS_Store file from folders you've customized in Finder
 .IP \(bu 2
-config/.DS_Store_master (fallback location)
+Common locations: ~/Desktop/.DS_Store, ~/Documents/.DS_Store, ~/Downloads/.DS_Store
+.IP \(bu 2
+Create custom templates by setting up a folder in Finder with desired view options
+
+See the template guide at \fIdoc/DSSTORE_TEMPLATE_GUIDE.md\fR for detailed instructions.
 
 .SH EXCLUDED DIRECTORIES
 Version control directories are automatically excluded from processing:
@@ -67,26 +172,61 @@ Version control directories are automatically excluded from processing:
 .BR _darcs ,
 .BR .fossil-settings
 
+Additional patterns can be excluded using the \fB\-\-exclude\fR option.
+
 .SH EXIT STATUS
 .TP
 .B 0
 Success
 .TP
 .B 1
-Error (invalid arguments, missing directories, etc.)
+Error (invalid arguments, missing directories, template not configured, etc.)
+
+.SH ENVIRONMENT VARIABLES
+.TP
+.B DSSTORE_TEMPLATE_ENV
+Override template path for this session (higher priority than config files)
+.TP
+.B NO_COLOR
+Disable colored output when set to "1"
+
+.SH FILES
+.TP
+.I ~/.config/dir-time-downdate/config
+User configuration file
+.TP
+.I /etc/xdg/dir-time-downdate/config
+System-wide configuration file (when installed with \fB\-\-system-config\fR)
 
 .SH REQUIREMENTS
 .IP \(bu 2
-Unix-like operating system (macOS, Linux, BSD)
+macOS 10.15+ (Catalina and later with default zsh)
 .IP \(bu 2
-Zsh shell
+Zsh shell (version 5.0 or later)
 .IP \(bu 2
-Standard Unix utilities: find, stat, touch
+Standard Unix utilities: find, stat, touch, realpath
 .IP \(bu 2
-Optional: GNU find (gfind) on macOS for better performance
+Optional: GNU find (gfind) on macOS for enhanced compatibility
+
+.SH INSTALLATION
+.SS System-wide Installation
+.nf
+.RS
+sudo ./install.sh
+sudo ./install.sh --system-config  # With global config support
+.RE
+.fi
+
+.SS User Installation
+.nf
+.RS
+./install.sh --user
+make install-user
+.RE
+.fi
 
 .SH AUTHOR
-Christopher Carroll <dir-downdate@llorracc.org>
+Christopher Carroll
 
 .SH COPYRIGHT
 Copyright (c) 2025 Christopher Carroll. Licensed under the MIT License.
@@ -97,5 +237,11 @@ Copyright (c) 2025 Christopher Carroll. Licensed under the MIT License.
 .BR touch (1),
 .BR zsh (1)
 
+For comprehensive documentation, see:
+.IP \(bu 2
+\fIdoc/DSSTORE_TEMPLATE_GUIDE.md\fR - Template creation and setup guide
+.IP \(bu 2
+\fIdoc/DSSTORE_MANAGEMENT.md\fR - Advanced .DS_Store management techniques
+
 .SH BUGS
-Report bugs at: https://github.com/llorracc/dir-time-downdate/issues 
+Report bugs at: https://github.com/llorracc/dir_time_downdate/issues 

@@ -3,7 +3,7 @@
 # Change directory timestamps recursively to match the newest file within each directory
 # This script:
 # * Optionally deletes .DS_Store files and broken symlinks first
-# * Deletes empty directories after timestamp updates
+# * Deletes empty directories and directories named 'auto' after timestamp updates
 # * Uses zsh globbing features for efficient file finding
 
 set -euo pipefail  # Exit on error, undefined vars, pipe failures
@@ -12,7 +12,55 @@ set -euo pipefail  # Exit on error, undefined vars, pipe failures
 CLEANUP_MACOS_FILES=true
 INTERACTIVE_MODE=true
 VERBOSE=false
-CREATE_EMPTY_DSSTORE=false
+# CREATE_DSSTORE flag removed - now automatic based on macOS detection
+DSSTORE_TEMPLATE=""
+SHOW_TEMPLATE_CONFIG=false
+SET_TEMPLATE_PATH=""
+TIMESTAMPS="all"
+DRY_RUN=false
+SHOW_PROGRESS=false
+ATOMIC_OPERATIONS=false
+SHOW_STATS=false
+EXCLUDE_PATTERNS=()
+INCLUDE_PATTERNS=()
+DEFAULT_EXCLUDES=(".git" ".DS_Store")
+
+# Statistics tracking
+STATS_DIRS_PROCESSED=0
+STATS_DIRS_UPDATED=0
+STATS_DIRS_EMPTY=0
+STATS_DIRS_SKIPPED=0
+STATS_FILES_SCANNED=0
+STATS_DSSTORE_CREATED=0
+STATS_DSSTORE_DELETED=0
+STATS_SYMLINKS_DELETED=0
+STATS_EMPTY_DIRS_DELETED=0
+STATS_AUTO_DIRS_DELETED=0
+
+# Color and formatting configuration
+COLORED_OUTPUT=true
+if [[ "${NO_COLOR:-}" == "1" ]] || [[ "${TERM:-}" == "dumb" ]] || [[ ! -t 1 ]]; then
+    COLORED_OUTPUT=false
+fi
+
+# Color definitions
+if [[ "$COLORED_OUTPUT" == "true" ]]; then
+    readonly RED=$'\033[0;31m'
+    readonly GREEN=$'\033[0;32m'
+    readonly YELLOW=$'\033[1;33m'
+    readonly BLUE=$'\033[0;34m'
+    readonly CYAN=$'\033[0;36m'
+    readonly BOLD=$'\033[1m'
+    readonly NC=$'\033[0m'  # No Color
+else
+    readonly RED=""
+    readonly GREEN=""
+    readonly YELLOW=""
+    readonly BLUE=""
+    readonly CYAN=""
+    readonly BOLD=""
+    readonly NC=""
+fi
 
 # Parse command line options
 while [[ $# -gt 0 ]]; do
@@ -29,18 +77,147 @@ while [[ $# -gt 0 ]]; do
             VERBOSE=true
             shift
             ;;
-        --create-empty-dsstore)
-            CREATE_EMPTY_DSSTORE=true
+        --template)
+            if [[ -n "$2" ]]; then
+                DSSTORE_TEMPLATE="$2"
+                shift 2
+            else
+                echo "Error: --template requires a file path argument" >&2
+                exit 1
+            fi
+            ;;
+        --template=*)
+            DSSTORE_TEMPLATE="${1#*=}"
             shift
+            ;;
+        --set-template)
+            if [[ -n "$2" ]]; then
+                SET_TEMPLATE_PATH="$2"
+                shift 2
+            else
+                echo "Error: --set-template requires a file path argument" >&2
+                exit 1
+            fi
+            ;;
+        --set-template=*)
+            SET_TEMPLATE_PATH="${1#*=}"
+            shift
+            ;;
+        --show-template)
+            SHOW_TEMPLATE_CONFIG=true
+            shift
+            ;;
+        --timestamps)
+            TIMESTAMPS="$2"
+            shift 2
+            ;;
+        --timestamps=*)
+            TIMESTAMPS="${1#*=}"
+            shift
+            ;;
+        --dry-run|-n)
+            DRY_RUN=true
+            shift
+            ;;
+        --progress)
+            SHOW_PROGRESS=true
+            shift
+            ;;
+        --exclude)
+            if [[ -n "$2" ]]; then
+                EXCLUDE_PATTERNS+=("$2")
+                shift 2
+            else
+                echo "Error: --exclude requires a pattern argument" >&2
+                exit 1
+            fi
+            ;;
+        --exclude=*)
+            EXCLUDE_PATTERNS+=("${1#*=}")
+            shift
+            ;;
+        --include)
+            if [[ -n "$2" ]]; then
+                INCLUDE_PATTERNS+=("$2")
+                shift 2
+            else
+                echo "Error: --include requires a pattern argument" >&2
+                exit 1
+            fi
+            ;;
+        --include=*)
+            INCLUDE_PATTERNS+=("${1#*=}")
+            shift
+            ;;
+        --atomic)
+            ATOMIC_OPERATIONS=true
+            shift
+            ;;
+        --stats)
+            SHOW_STATS=true
+            shift
+            ;;
+        --no-color)
+            COLORED_OUTPUT=false
+            # Redefine colors as empty
+            readonly RED=""
+            readonly GREEN=""
+            readonly YELLOW=""
+            readonly BLUE=""
+            readonly CYAN=""
+            readonly BOLD=""
+            readonly NC=""
+            shift
+            ;;
+        --version)
+            # Read version from VERSION file in the same directory as this script
+            script_dir="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+            version_file=""
+            
+            # Look for VERSION file in various locations
+            for potential_dir in "$script_dir/.." "/usr/local/share/dir-time-downdate" "/opt/tools/share/dir-time-downdate" "$HOME/.local/share/dir-time-downdate" "$HOME/share/dir-time-downdate"; do
+                if [[ -f "$potential_dir/VERSION" ]]; then
+                    version_file="$potential_dir/VERSION"
+                    break
+                fi
+            done
+            
+            if [[ -n "$version_file" ]]; then
+                echo "dir-time-downdate $(cat "$version_file")"
+            else
+                echo "dir-time-downdate (version unknown - VERSION file not found)"
+            fi
+            exit 0
             ;;
         --help|-h)
             echo "Usage: $0 [options] directory..."
             echo "Options:"
-            echo "  --no-cleanup           Don't delete .DS_Store files and broken symlinks"
+            echo "  --no-cleanup           Don't delete .DS_Store files, broken symlinks, empty directories, and 'auto' directories"
             echo "  --non-interactive      Don't prompt for Finder window closure"
             echo "  --verbose, -v          Show detailed progress"
-            echo "  --create-empty-dsstore Create zero-size .DS_Store files with early timestamps in all directories"
+            echo "  --template PATH        Use specific .DS_Store template file for this session"
+            echo "  --set-template PATH    Save .DS_Store template path to configuration for future use"
+            echo "  --show-template        Show current template configuration and status"
+            echo "  --timestamps TYPE      Comma-separated list of timestamp types to update:"
+            echo "                         mtime (modification), atime (access), all (default)"
+            echo "                         Example: --timestamps mtime,atime"
+            echo "  --dry-run, -n          Show what would be changed without making changes"
+            echo "  --progress             Show progress bar during processing"
+            echo "  --exclude PATTERN      Exclude paths matching pattern (can be used multiple times)"
+            echo "                         Patterns support shell wildcards (* ? []) and paths"
+            echo "                         Example: --exclude '*.tmp' --exclude 'build/*'"
+            echo "  --include PATTERN      Include only paths matching pattern (can be used multiple times)"
+            echo "                         When used, only matching paths are processed"
+            echo "  --atomic               Use atomic operations (all changes succeed or all fail)"
+            echo "  --stats                Show detailed statistics after processing"
+            echo "  --no-color             Disable colored output"
+            echo "  --version              Show version information"
             echo "  --help, -h             Show this help"
+            echo ""
+            echo "Template Setup:"
+            echo "  Works automatically:  dir-time-downdate ~/target/directory"
+            echo "  Custom template:      dir-time-downdate --set-template ~/my-template/.DS_Store"
+            echo "  See 'doc/DSSTORE_TEMPLATE_GUIDE.md' for help creating custom templates"
             exit 0
             ;;
         -*)
@@ -53,8 +230,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Check arguments
-if [[ $# -eq 0 ]]; then
+# Check arguments (skip check for special configuration commands)
+if [[ $# -eq 0 && "$SHOW_TEMPLATE_CONFIG" != "true" && -z "$SET_TEMPLATE_PATH" ]]; then
     echo "Error: No directories specified" >&2
     echo "Usage: $0 [options] directory..." >&2
     exit 1
@@ -63,17 +240,563 @@ fi
 # Validate directories exist
 for dir in "$@"; do
     if [[ ! -d "$dir" ]]; then
-        echo "Error: '$dir' is not a directory or does not exist" >&2
+        log_error "'$dir' is not a directory or does not exist"
         exit 1
     fi
 done
 
-# Function to log verbose messages
+# Enhanced logging functions
 log_verbose() {
     if [[ "$VERBOSE" == "true" ]]; then
-        echo "$@"
+        echo "${CYAN}[VERBOSE]${NC} $*"
     fi
 }
+
+log_info() {
+    echo "${BLUE}[INFO]${NC} $*"
+}
+
+log_success() {
+    echo "${GREEN}[SUCCESS]${NC} $*"
+}
+
+log_warning() {
+    echo "${YELLOW}[WARNING]${NC} $*" >&2
+}
+
+log_error() {
+    echo "${RED}[ERROR]${NC} $*" >&2
+}
+
+# Configuration file management
+# XDG Base Directory Specification support
+SYSTEM_CONFIG_DIR="/etc/xdg/dir-time-downdate"
+SYSTEM_CONFIG_FILE="$SYSTEM_CONFIG_DIR/config"
+USER_CONFIG_DIR="$HOME/.config/dir-time-downdate"
+USER_CONFIG_FILE="$USER_CONFIG_DIR/config"
+OLD_CONFIG_FILE="$HOME/.dir-time-downdate.conf"
+
+# Backward compatibility
+CONFIG_DIR="$USER_CONFIG_DIR"
+CONFIG_FILE="$USER_CONFIG_FILE"
+
+# Create user config directory if it doesn't exist
+create_user_config_dir() {
+    if [[ ! -d "$USER_CONFIG_DIR" ]]; then
+        mkdir -p "$USER_CONFIG_DIR"
+        log_info "Created user config directory: $USER_CONFIG_DIR"
+    fi
+}
+
+# Backward compatibility function
+create_config_dir() {
+    create_user_config_dir
+}
+
+# Create system config directory if it doesn't exist (requires root)
+create_system_config_dir() {
+    if [[ ! -d "$SYSTEM_CONFIG_DIR" ]]; then
+        mkdir -p "$SYSTEM_CONFIG_DIR"
+        log_info "Created system config directory: $SYSTEM_CONFIG_DIR"
+    fi
+}
+
+# Migrate old config file if it exists
+migrate_old_config() {
+    if [[ -f "$OLD_CONFIG_FILE" && ! -f "$USER_CONFIG_FILE" ]]; then
+        create_user_config_dir
+        cp "$OLD_CONFIG_FILE" "$USER_CONFIG_FILE"
+        rm "$OLD_CONFIG_FILE"
+        log_info "Migrated config from $OLD_CONFIG_FILE to $USER_CONFIG_FILE"
+    fi
+}
+
+# Load configuration from a specific file
+load_config_file() {
+    local config_file="$1"
+    local config_source="$2"
+    
+    if [[ -f "$config_file" ]]; then
+        while IFS='=' read -r key value; do
+            # Skip comments and empty lines
+            [[ "$key" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$key" ]] && continue
+            
+            case "$key" in
+                DSSTORE_TEMPLATE)
+                    # Only use config if not already set by higher priority source
+                    if [[ -z "$DSSTORE_TEMPLATE" ]]; then
+                        DSSTORE_TEMPLATE="$value"
+                        [[ "$VERBOSE" == "true" ]] && log_info "Loaded template from $config_source: $value"
+                    fi
+                    ;;
+            esac
+        done < "$config_file"
+    fi
+}
+
+# Load system-wide configuration (lowest priority)
+load_system_config() {
+    load_config_file "$SYSTEM_CONFIG_FILE" "system config"
+}
+
+# Load user configuration (higher priority, overrides system)
+load_user_config() {
+    load_config_file "$USER_CONFIG_FILE" "user config"
+}
+
+load_config() {
+    migrate_old_config
+    
+    # Load in XDG priority order: system config first, then user config
+    # User config overrides system config
+    load_system_config
+    load_user_config
+    
+    # Check environment variable if not set by config or command line
+    if [[ -z "$DSSTORE_TEMPLATE" && -n "${DSSTORE_TEMPLATE_ENV:-}" ]]; then
+        DSSTORE_TEMPLATE="$DSSTORE_TEMPLATE_ENV"
+    fi
+    
+    # Fall back to installed default templates if nothing else is configured
+    if [[ -z "$DSSTORE_TEMPLATE" ]]; then
+        # Look for installed templates in order of preference
+        for potential_template in \
+            "$USER_CONFIG_DIR/.DS_Store_template" \
+            "$SYSTEM_CONFIG_DIR/.DS_Store_template" \
+            "/usr/local/share/dir-time-downdate/templates/.DS_Store_template" \
+            "/opt/tools/share/dir-time-downdate/templates/.DS_Store_template" \
+            "$HOME/.local/share/dir-time-downdate/templates/.DS_Store_template" \
+            "$HOME/share/dir-time-downdate/templates/.DS_Store_template"; do
+            
+            if [[ -f "$potential_template" && -r "$potential_template" ]]; then
+                DSSTORE_TEMPLATE="$potential_template"
+                [[ "$VERBOSE" == "true" ]] && log_info "Using installed default template: $potential_template"
+                break
+            fi
+        done
+    fi
+}
+
+set_template_config() {
+    local template_path="$1"
+    
+    # Validate template file exists and is readable
+    if [[ ! -f "$template_path" ]]; then
+        log_error "Template file does not exist: $template_path"
+        exit 1
+    fi
+    
+    if [[ ! -r "$template_path" ]]; then
+        log_error "Template file is not readable: $template_path"
+        exit 1
+    fi
+    
+    # Convert to absolute path
+    template_path=$(realpath "$template_path")
+    
+    # Ensure user config directory exists
+    create_user_config_dir
+    
+    # Create or update user config file
+    {
+        echo "# dir-time-downdate user configuration"
+        echo "# Generated on $(date)"
+        echo ""
+        echo "# Default .DS_Store template file path"
+        echo "DSSTORE_TEMPLATE=$template_path"
+    } > "$USER_CONFIG_FILE"
+    
+    log_success "Template path saved to user configuration: $template_path"
+    log_info "Config file: $USER_CONFIG_FILE"
+    log_info "Use --show-template to verify configuration"
+}
+
+show_template_config() {
+    echo "Current .DS_Store template configuration (XDG Base Directory Specification):"
+    echo ""
+    
+    # Show system-wide configuration
+    echo "${BOLD}System Configuration:${NC}"
+    if [[ -f "$SYSTEM_CONFIG_FILE" ]]; then
+        echo "  Config file: $SYSTEM_CONFIG_FILE"
+        if grep -q "DSSTORE_TEMPLATE=" "$SYSTEM_CONFIG_FILE"; then
+            local system_template
+            system_template=$(grep "DSSTORE_TEMPLATE=" "$SYSTEM_CONFIG_FILE" | cut -d'=' -f2-)
+            echo "  Template: $system_template"
+            
+            if [[ -f "$system_template" ]]; then
+                echo "  Status: ✓ Template file exists and is readable"
+            else
+                echo "  Status: ✗ Template file not found or not readable"
+            fi
+        else
+            echo "  Status: ✗ No template configured in system config"
+        fi
+    else
+        echo "  Config file: Not found ($SYSTEM_CONFIG_FILE)"
+        echo "  Status: ✗ No system-wide configuration"
+    fi
+    
+    echo ""
+    
+    # Show user configuration
+    echo "${BOLD}User Configuration:${NC}"
+    if [[ -f "$USER_CONFIG_FILE" ]]; then
+        echo "  Config file: $USER_CONFIG_FILE"
+        if grep -q "DSSTORE_TEMPLATE=" "$USER_CONFIG_FILE"; then
+            local user_template
+            user_template=$(grep "DSSTORE_TEMPLATE=" "$USER_CONFIG_FILE" | cut -d'=' -f2-)
+            echo "  Template: $user_template"
+            
+            if [[ -f "$user_template" ]]; then
+                echo "  Status: ✓ Template file exists and is readable"
+                echo "  File info: $(ls -lah "$user_template")"
+            else
+                echo "  Status: ✗ Template file not found or not readable"
+            fi
+        else
+            echo "  Status: ✗ No template configured in user config"
+        fi
+    else
+        echo "  Config file: Not found ($USER_CONFIG_FILE)"
+        echo "  Status: ✗ No user configuration"
+    fi
+    
+    echo ""
+    
+    # Show environment variable
+    if [[ -n "${DSSTORE_TEMPLATE_ENV:-}" ]]; then
+        echo "${BOLD}Environment Variable:${NC}"
+        echo "  DSSTORE_TEMPLATE_ENV=$DSSTORE_TEMPLATE_ENV"
+        echo ""
+    fi
+    
+    # Show effective configuration
+    echo "${BOLD}Effective Configuration:${NC}"
+    if [[ -n "$DSSTORE_TEMPLATE" ]]; then
+        echo "  Currently using: ${GREEN}$DSSTORE_TEMPLATE${NC}"
+        if [[ -f "$DSSTORE_TEMPLATE" ]]; then
+            echo "  Status: ✓ Template is accessible"
+        else
+            echo "  Status: ${RED}✗ Template not accessible${NC}"
+        fi
+    else
+        echo "  Status: ${YELLOW}⚠ No template configured${NC}"
+    fi
+    
+    echo ""
+    echo "${BOLD}Configuration Hierarchy (highest to lowest priority):${NC}"
+    echo "  1. Command line (--template PATH)"
+    echo "  2. Environment variable (DSSTORE_TEMPLATE_ENV)"
+    echo "  3. User config ($USER_CONFIG_FILE)"
+    echo "  4. System config ($SYSTEM_CONFIG_FILE)"
+    echo ""
+    echo "${BOLD}Commands:${NC}"
+    echo "  Set user template:      dir-time-downdate --set-template /path/to/your/.DS_Store"
+    echo "  One-time template use:  dir-time-downdate --template /path/to/template /target/dir"
+    echo "  View this status:       dir-time-downdate --show-template"
+}
+
+# Progress indicator function
+show_progress() {
+    local message="$1"
+    local count="$2"
+    local total="$3"
+    
+    if [[ "$VERBOSE" == "true" ]]; then
+        local percentage=$((count * 100 / total))
+        printf "${CYAN}[PROGRESS]${NC} %s: %d/%d (%d%%)\r" "$message" "$count" "$total" "$percentage"
+        if [[ "$count" -eq "$total" ]]; then
+            echo # New line when complete
+        fi
+    fi
+}
+
+# Function to update selective timestamps
+update_selective_timestamps() {
+    local source_file="$1"
+    local target_dir="$2"
+    local timestamp_types="$3"
+    
+    # Get source file timestamps
+    local source_mtime source_atime
+    source_mtime=$(stat -f %m "$source_file" 2>/dev/null) || return 1
+    source_atime=$(stat -f %a "$source_file" 2>/dev/null) || return 1
+    
+    local update_mtime=false update_atime=false
+    
+    if [[ "$timestamp_types" == "all" ]]; then
+        update_mtime=true
+        update_atime=true
+    else
+        local types
+        IFS=',' types=(${(s:,:)timestamp_types})
+        for type in "${types[@]}"; do
+            case "$type" in
+                mtime) update_mtime=true ;;
+                atime) update_atime=true ;;
+                ctime) log_warning "ctime cannot be manually set on most systems" ;;
+                btime) log_warning "btime modification not supported on macOS via touch" ;;
+                *) log_error "Unknown timestamp type: $type"; return 1 ;;
+            esac
+        done
+    fi
+    
+    # Apply timestamp updates
+    if [[ "$DRY_RUN" == "true" ]]; then
+        # Dry run - just report what would be done
+        local timestamp_desc="$timestamp_types"
+        if [[ "$timestamp_types" == "all" ]]; then
+            timestamp_desc="all timestamps"
+        fi
+        echo "[DRY RUN] Would update $timestamp_desc of '$target_dir' to match '$source_file'"
+        return 0
+    fi
+    
+    if [[ "$update_mtime" == "true" && "$update_atime" == "true" ]]; then
+        # Update both - use simple touch -r (current behavior)
+        touch -r "$source_file" "$target_dir"
+    elif [[ "$update_mtime" == "true" ]]; then
+        # Update only mtime - preserve existing atime by setting it back
+        local current_atime
+        current_atime=$(stat -f %a "$target_dir" 2>/dev/null) || return 1
+        # Set mtime using touch with timestamp
+        touch -t "$(date -r "$source_mtime" '+%Y%m%d%H%M.%S')" "$target_dir"
+        # Restore original atime
+        touch -a -t "$(date -r "$current_atime" '+%Y%m%d%H%M.%S')" "$target_dir"
+    elif [[ "$update_atime" == "true" ]]; then
+        # Update only atime 
+        log_warning "atime-only updates may not work reliably on all filesystems"
+        touch -a -t "$(date -r "$source_atime" '+%Y%m%d%H%M.%S')" "$target_dir"
+    fi
+    
+    return 0
+}
+
+# Progress bar functionality
+PROGRESS_CURRENT=0
+PROGRESS_TOTAL=0
+PROGRESS_IN_EMACS=false
+
+# Detect if we're running in Emacs
+if [[ -n "$INSIDE_EMACS" || "$TERM" == "eterm-color" || "$EMACS" == "t" ]]; then
+    PROGRESS_IN_EMACS=true
+fi
+
+# Initialize progress tracking
+init_progress() {
+    local total="$1"
+    PROGRESS_TOTAL="$total"
+    PROGRESS_CURRENT=0
+    
+    if [[ "$SHOW_PROGRESS" == "true" && "$total" -gt 0 ]]; then
+        if [[ "$PROGRESS_IN_EMACS" == "true" ]]; then
+            echo "Processing $total directories..."
+        else
+            printf "Processing: [%-50s] 0%%\r" ""
+        fi
+    fi
+}
+
+# Update progress bar
+update_progress() {
+    PROGRESS_CURRENT=$((PROGRESS_CURRENT + 1))
+    
+    if [[ "$SHOW_PROGRESS" == "true" && "$PROGRESS_TOTAL" -gt 0 ]]; then
+        local percent=$((PROGRESS_CURRENT * 100 / PROGRESS_TOTAL))
+        
+        if [[ "$PROGRESS_IN_EMACS" == "true" ]]; then
+            # Emacs-friendly: print progress every 10% or last item
+            if (( percent % 10 == 0 || PROGRESS_CURRENT == PROGRESS_TOTAL )); then
+                echo "Progress: $PROGRESS_CURRENT/$PROGRESS_TOTAL ($percent%)"
+            fi
+        else
+            # Terminal with carriage return
+            local filled=$((percent / 2))  # 50-char bar
+            local bar=""
+            for ((i=0; i<filled; i++)); do bar+="="; done
+            for ((i=filled; i<50; i++)); do bar+=" "; done
+            printf "Processing: [%s] %d%%\r" "$bar" "$percent"
+            
+            # Final newline when complete
+            if (( PROGRESS_CURRENT == PROGRESS_TOTAL )); then
+                echo ""
+            fi
+        fi
+    fi
+}
+
+# Pattern matching function
+should_process_path() {
+    local path="$1"
+    local basename_item="${path##*/}"  # zsh built-in basename
+    
+    # Always exclude default patterns (.git, .DS_Store)
+    for pattern in "${DEFAULT_EXCLUDES[@]}"; do
+        if [[ "$basename_item" == "$pattern" ]]; then
+            return 1  # Exclude
+        fi
+    done
+    
+    # Check custom exclude patterns  
+    for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+        # Match against both full path and basename
+        if [[ "$path" == $pattern || "$basename_item" == $pattern ]]; then
+            return 1  # Exclude
+        fi
+    done
+    
+    # If include patterns are specified, path must match at least one
+    if (( ${#INCLUDE_PATTERNS[@]} > 0 )); then
+        local matched=false
+        for pattern in "${INCLUDE_PATTERNS[@]}"; do
+            # Match against both full path and basename
+            if [[ "$path" == $pattern || "$basename_item" == $pattern ]]; then
+                matched=true
+                break
+            fi
+        done
+        [[ "$matched" == "true" ]] || return 1  # Exclude if no include pattern matched
+    fi
+    
+    return 0  # Include
+}
+
+# Atomic operations support
+ATOMIC_OPERATIONS_LIST=()
+
+# Add operation to atomic list
+add_atomic_operation() {
+    local source_file="$1"
+    local target_dir="$2" 
+    local timestamps="$3"
+    
+    ATOMIC_OPERATIONS_LIST+=("$source_file|$target_dir|$timestamps")
+}
+
+# Execute all atomic operations
+execute_atomic_operations() {
+    local operation
+    local source_file target_dir timestamps
+    local failed_operations=()
+    
+    # Skip validation in dry-run mode
+    if [[ "$DRY_RUN" != "true" ]]; then
+        # Dry run first - verify all operations can be performed
+        for operation in "${ATOMIC_OPERATIONS_LIST[@]}"; do
+            IFS='|' read -r source_file target_dir timestamps <<< "$operation"
+            
+            # Verify source file exists and is readable
+            if [[ ! -f "$source_file" || ! -r "$source_file" ]]; then
+                echo "Error: Cannot read source file '$source_file'" >&2
+                return 1
+            fi
+            
+            # Verify target directory exists and is writable
+            if [[ ! -d "$target_dir" || ! -w "$target_dir" ]]; then
+                echo "Error: Cannot write to target directory '$target_dir'" >&2
+                return 1
+            fi
+            
+            # Test if touch would work (create temporary test file)
+            local test_file="$target_dir/.timestamp_test_$$"
+            if ! touch "$test_file" 2>/dev/null; then
+                echo "Error: Cannot modify timestamps in directory '$target_dir'" >&2
+                return 1
+            fi
+            rm -f "$test_file" 2>/dev/null
+        done
+    fi
+    
+    # All operations verified - now execute them
+    for operation in "${ATOMIC_OPERATIONS_LIST[@]}"; do
+        IFS='|' read -r source_file target_dir timestamps <<< "$operation"
+        
+        if ! update_selective_timestamps "$source_file" "$target_dir" "$timestamps"; then
+            failed_operations+=("$target_dir")
+        fi
+    done
+    
+    # Report results
+    if (( ${#failed_operations[@]} > 0 )); then
+        echo "Warning: Some atomic operations failed:" >&2
+        for dir in "${failed_operations[@]}"; do
+            echo "  Failed to update: $dir" >&2
+        done
+        return 1
+    fi
+    
+    return 0
+}
+
+# Determine if .DS_Store management is needed
+# Returns 0 (true) if .DS_Store files should be managed, 1 (false) otherwise
+should_manage_dsstore() {
+    local target_dirs=("$@")
+    
+    # Check if running on macOS
+    if [[ "$OSTYPE" == darwin* ]]; then
+        log_verbose "Running on macOS - .DS_Store management enabled"
+        return 0
+    fi
+    
+    # Check if any .DS_Store files exist in any target directory
+    for dir in "${target_dirs[@]}"; do
+        if [[ -d "$dir" ]]; then
+            if find "$dir" -name '.DS_Store' -type f 2>/dev/null | head -1 | grep -q .; then
+                log_verbose "Found .DS_Store files in $dir - .DS_Store management enabled"
+                return 0
+            fi
+        fi
+    done
+    
+    log_verbose "Not on macOS and no .DS_Store files found - .DS_Store management disabled"
+    return 1
+}
+
+# Display statistics
+show_statistics() {
+    if [[ "$SHOW_STATS" != "true" ]]; then
+        return 0
+    fi
+    
+    echo ""
+    echo "=== PROCESSING STATISTICS ==="
+    echo "Directories processed: $STATS_DIRS_PROCESSED"
+    echo "Directories updated:   $STATS_DIRS_UPDATED" 
+    echo "Empty directories:     $STATS_DIRS_EMPTY"
+    echo "Directories skipped:   $STATS_DIRS_SKIPPED"
+    echo "Files scanned:         $STATS_FILES_SCANNED"
+    
+    # Display .DS_Store creation stats if any were created
+    if (( STATS_DSSTORE_CREATED > 0 )); then
+        echo ".DS_Store files created: $STATS_DSSTORE_CREATED"
+    fi
+    
+    if [[ "$CLEANUP_MACOS_FILES" == "true" ]]; then
+        echo ".DS_Store files deleted: $STATS_DSSTORE_DELETED"
+        echo "Broken symlinks deleted: $STATS_SYMLINKS_DELETED"
+        echo "Empty directories deleted: $STATS_EMPTY_DIRS_DELETED"
+        echo "'auto' directories deleted: $STATS_AUTO_DIRS_DELETED"
+    fi
+    
+    echo "============================="
+}
+
+# Load configuration after all functions are defined
+load_config
+
+# Handle special configuration commands after loading config
+if [[ "$SHOW_TEMPLATE_CONFIG" == "true" ]]; then
+    show_template_config
+    exit 0
+fi
+
+if [[ -n "$SET_TEMPLATE_PATH" ]]; then
+    set_template_config "$SET_TEMPLATE_PATH"
+    exit 0
+fi
 
 # macOS-specific: prompt to close Finder windows (only if Finder is running)
 if [[ "$INTERACTIVE_MODE" == "true" && "$OSTYPE" == darwin* ]]; then
@@ -101,80 +824,113 @@ if [[ "$CLEANUP_MACOS_FILES" == "true" ]]; then
     
     for dir in "$@"; do
         # Delete .DS_Store files
-        if "$FIND_CMD" "$dir" -name '.DS_Store' -type f -delete 2>/dev/null; then
-            log_verbose "Deleted .DS_Store files in $dir"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            local dsstore_count
+            dsstore_count=$("$FIND_CMD" "$dir" -name '.DS_Store' -type f 2>/dev/null | wc -l)
+            if (( dsstore_count > 0 )); then
+                echo "[DRY RUN] Would delete $dsstore_count .DS_Store files in $dir"
+                STATS_DSSTORE_DELETED=$((STATS_DSSTORE_DELETED + dsstore_count))
+            fi
+        else
+            local dsstore_count
+            dsstore_count=$("$FIND_CMD" "$dir" -name '.DS_Store' -type f 2>/dev/null | wc -l)
+            if "$FIND_CMD" "$dir" -name '.DS_Store' -type f -delete 2>/dev/null; then
+                log_verbose "Deleted .DS_Store files in $dir"
+                STATS_DSSTORE_DELETED=$((STATS_DSSTORE_DELETED + dsstore_count))
+            fi
         fi
         
         # Delete broken symlinks
-        if "$FIND_CMD" "$dir" -xtype l -delete 2>/dev/null; then
-            log_verbose "Deleted broken symlinks in $dir"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            local symlink_count
+            symlink_count=$("$FIND_CMD" "$dir" -xtype l 2>/dev/null | wc -l)
+            if (( symlink_count > 0 )); then
+                echo "[DRY RUN] Would delete $symlink_count broken symlinks in $dir"
+                STATS_SYMLINKS_DELETED=$((STATS_SYMLINKS_DELETED + symlink_count))
+            fi
+        else
+            local symlink_count
+            symlink_count=$("$FIND_CMD" "$dir" -xtype l 2>/dev/null | wc -l)
+            if "$FIND_CMD" "$dir" -xtype l -delete 2>/dev/null; then
+                log_verbose "Deleted broken symlinks in $dir"
+                STATS_SYMLINKS_DELETED=$((STATS_SYMLINKS_DELETED + symlink_count))
+            fi
         fi
     done
 fi
 
-# Create empty .DS_Store files in all directories (if enabled)
-if [[ "$CREATE_EMPTY_DSSTORE" == "true" ]]; then
-    log_verbose "Creating empty .DS_Store files in all directories..."
+# Determine if .DS_Store management is needed
+MANAGE_DSSTORE=false
+if should_manage_dsstore "$@"; then
+    MANAGE_DSSTORE=true
+fi
+
+# Create .DS_Store files using template (if needed)
+if [[ "$MANAGE_DSSTORE" == "true" ]]; then
+    log_verbose "Creating .DS_Store files using template..."
     
-    # Use Unix epoch .DS_Store file as template (all timestamps set to epoch 0)
-    # Look for template file in standard system locations only
-    local source_dsstore=""
-    
-    # Try system-wide installation first, then user installations
-    if [[ -f "/usr/local/share/dir-time-downdate/.DS_Store_master" ]]; then
-        source_dsstore="/usr/local/share/dir-time-downdate/.DS_Store_master"
-    elif [[ -f "$HOME/.local/share/dir-time-downdate/.DS_Store_master" ]]; then
-        source_dsstore="$HOME/.local/share/dir-time-downdate/.DS_Store_master"
-    elif [[ -f "$HOME/share/dir-time-downdate/.DS_Store_master" ]]; then
-        source_dsstore="$HOME/share/dir-time-downdate/.DS_Store_master"
+    # Check if template is available
+    if [[ -z "$DSSTORE_TEMPLATE" ]]; then
+        log_warning "No .DS_Store template available."
+        log_warning "The next time you open these folders in Finder, macOS will create new"
+        log_warning ".DS_Store files with current timestamps, which may affect directory timestamps."
+        log_warning "Consider running: dir-time-downdate --set-template /path/to/your/.DS_Store"
+        log_warning "For help creating templates, see: doc/DSSTORE_TEMPLATE_GUIDE.md"
+        # Continue without creating .DS_Store files
     else
-        echo "Error: .DS_Store template not found. Expected at one of:" >&2
-        echo "  /usr/local/share/dir-time-downdate/.DS_Store_master (system install)" >&2
-        echo "  ~/.local/share/dir-time-downdate/.DS_Store_master (user install)" >&2
-        echo "  ~/share/dir-time-downdate/.DS_Store_master (home install)" >&2
-        echo "" >&2
-        echo "If you recently installed dir-time-downdate, the template files may not have been" >&2
-        echo "installed correctly. Please reinstall using one of:" >&2
-        echo "  sudo ./install.sh                 # System-wide installation" >&2
-        echo "  ./install.sh --user               # User installation" >&2
-        echo "  ./install.sh --home               # Home directory installation" >&2
-        exit 1
-    fi
     
-    local template_file="/tmp/.dsstore_epoch_template_$$"
-    
-    log_verbose "Using .DS_Store template: $source_dsstore"
-    if cp -p "$source_dsstore" "$template_file" 2>/dev/null; then
-        log_verbose "Template created successfully - using project template file"
-    else
-        echo "Error: Could not copy .DS_Store template file from $source_dsstore" >&2
-        exit 1
-    fi
-    
-    for dir in "$@"; do
-        # Find all directories recursively (do not follow symlinks)
-        find "$dir" -type d -not -type l | while IFS= read -r directory; do
-            # Skip if directory no longer exists
-            [[ -d "$directory" ]] || continue
+        # Validate template file
+        if [[ ! -f "$DSSTORE_TEMPLATE" ]]; then
+            log_warning "Template file does not exist: $DSSTORE_TEMPLATE"
+            log_warning "Use --set-template to configure a valid template or --show-template to check current config"
+            # Continue without creating .DS_Store files
+        elif [[ ! -r "$DSSTORE_TEMPLATE" ]]; then
+            log_warning "Template file is not readable: $DSSTORE_TEMPLATE"
+            # Continue without creating .DS_Store files
+        else
+            local template_file="/tmp/.dsstore_user_template_$$"
             
-            dsstore_file="$directory/.DS_Store"
-            
-            # Create zero-size .DS_Store file if it doesn't exist
-            if [[ ! -f "$dsstore_file" ]]; then
-                # Copy template file preserving ALL epoch 0 timestamps
-                if cp -p "$template_file" "$dsstore_file" 2>/dev/null; then
-                    log_verbose "Created .DS_Store file in directory: $directory (all timestamps: Dec 31 1969)"
-                else
-                    echo "Warning: Could not create .DS_Store file in '$directory'" >&2
-                fi
+            log_verbose "Using .DS_Store template: $DSSTORE_TEMPLATE"
+            if cp -p "$DSSTORE_TEMPLATE" "$template_file" 2>/dev/null; then
+                log_verbose "Template copied successfully - using template file"
+    
+                for dir in "$@"; do
+                    # Find all directories recursively (do not follow symlinks)
+                    find "$dir" -type d -not -type l | while IFS= read -r directory; do
+                        # Skip if directory no longer exists
+                        [[ -d "$directory" ]] || continue
+                        
+                        dsstore_file="$directory/.DS_Store"
+                        
+                        # Create .DS_Store file if it doesn't exist
+                        if [[ ! -f "$dsstore_file" ]]; then
+                            if [[ "$DRY_RUN" == "true" ]]; then
+                                echo "[DRY RUN] Would create write-protected .DS_Store file in directory: $directory"
+                                STATS_DSSTORE_CREATED=$((STATS_DSSTORE_CREATED + 1))
+                            else
+                                # Copy template file preserving epoch timestamps
+                                if cp -p "$template_file" "$dsstore_file" 2>/dev/null; then
+                                    # Make file write-protected to prevent Finder from modifying it
+                                    chmod 444 "$dsstore_file" 2>/dev/null
+                                    log_verbose "Created write-protected .DS_Store file in directory: $directory (timestamps: Dec 31 1969)"
+                                    STATS_DSSTORE_CREATED=$((STATS_DSSTORE_CREATED + 1))
+                                else
+                                    log_warning "Could not create .DS_Store file in '$directory'"
+                                fi
+                            fi
+                        else
+                            log_verbose "Directory already has .DS_Store file: $directory" 
+                        fi
+                    done
+                done
+                
+                # Clean up template file
+                rm -f "$template_file" 2>/dev/null
             else
-                log_verbose "Directory already has .DS_Store file: $directory" 
+                log_warning "Could not copy .DS_Store template file from $DSSTORE_TEMPLATE"
             fi
-        done
-    done
-    
-    # Clean up template file
-    rm -f "$template_file" 2>/dev/null
+        fi
+    fi
 fi
 
 # Main execution
@@ -186,10 +942,30 @@ for dir in "$@"; do
     
     log_verbose "Processing directory: $dir"
     
+    # Count total directories for progress tracking
+    if [[ "$SHOW_PROGRESS" == "true" ]]; then
+        local total_dirs=0
+        while IFS= read -r directory; do
+            if should_process_path "$directory"; then
+                total_dirs=$((total_dirs + 1))
+            fi
+        done < <(find "$dir" -depth -type d -not -path "*/.git" -not -path "*/.git/*" 2>/dev/null)
+        init_progress "$total_dirs"
+    fi
+    
     # Process directories in depth-first order (deepest first), excluding .git directories
-    find "$dir" -depth -type d -not -path "*/.git" -not -path "*/.git/*" | while IFS= read -r directory; do
+    while IFS= read -r directory; do
         # Skip if directory no longer exists
         [[ -d "$directory" ]] || continue
+        
+        # Apply pattern filtering
+        if ! should_process_path "$directory"; then
+            log_verbose "Skipping directory (excluded by pattern): $directory"
+            STATS_DIRS_SKIPPED=$((STATS_DIRS_SKIPPED + 1))
+            continue
+        fi
+        
+        STATS_DIRS_PROCESSED=$((STATS_DIRS_PROCESSED + 1))
         
         # Find the newest file or subdirectory using ls (much faster than find+stat)
         # Use nullglob to handle empty directories gracefully
@@ -199,11 +975,12 @@ for dir in "$@"; do
         
         # Check regular files and directories
         for item in "$directory"/*; do
-            # Skip .git directories (git metadata shouldn't affect directory timestamps)
-            [[ "$(basename "$item")" == ".git" ]] && continue
-            # Skip .DS_Store files (created by script, shouldn't affect directory timestamps)
-            [[ "$(basename "$item")" == ".DS_Store" ]] && continue
+            # Apply pattern filtering (includes default excludes)
+            if ! should_process_path "$item"; then
+                continue
+            fi
             if [[ -e "$item" ]]; then
+                STATS_FILES_SCANNED=$((STATS_FILES_SCANNED + 1))
                 if item_time=$(stat -f %m "$item" 2>/dev/null); then
                     if (( item_time > newest_time )); then
                         newest_time=$item_time
@@ -216,12 +993,14 @@ for dir in "$@"; do
         # Check hidden files and directories
         for item in "$directory"/.*; do
             # Skip . and .. entries
-            [[ "$(basename "$item")" == "." || "$(basename "$item")" == ".." ]] && continue
-            # Skip .git directories (git metadata shouldn't affect directory timestamps)
-            [[ "$(basename "$item")" == ".git" ]] && continue
-            # Skip .DS_Store files (created by script, shouldn't affect directory timestamps)
-            [[ "$(basename "$item")" == ".DS_Store" ]] && continue
+            local item_basename="${item##*/}"
+            [[ "$item_basename" == "." || "$item_basename" == ".." ]] && continue
+            # Apply pattern filtering (includes default excludes)
+            if ! should_process_path "$item"; then
+                continue
+            fi
             if [[ -e "$item" ]]; then
+                STATS_FILES_SCANNED=$((STATS_FILES_SCANNED + 1))
                 if item_time=$(stat -f %m "$item" 2>/dev/null); then
                     if (( item_time > newest_time )); then
                         newest_time=$item_time
@@ -233,25 +1012,94 @@ for dir in "$@"; do
         
         # Update directory timestamp if we found files
         if [[ -n "$newest_file" && -e "$newest_file" ]]; then
-            if touch -r "$newest_file" "$directory" 2>/dev/null; then
-                log_verbose "Updated timestamp of '$directory' to match '$newest_file'"
+            if [[ "$ATOMIC_OPERATIONS" == "true" ]]; then
+                # Add to atomic operations list
+                add_atomic_operation "$newest_file" "$directory" "$TIMESTAMPS"
+                log_verbose "Queued atomic update of '$directory' to match '$newest_file'"
+                STATS_DIRS_UPDATED=$((STATS_DIRS_UPDATED + 1))  # Count queued updates
             else
-                echo "Warning: Could not update timestamp of '$directory'" >&2
+                # Execute immediately
+                if update_selective_timestamps "$newest_file" "$directory" "$TIMESTAMPS"; then
+                    local timestamp_desc="$TIMESTAMPS"
+                    if [[ "$TIMESTAMPS" == "all" ]]; then
+                        timestamp_desc="all timestamps"
+                    fi
+                    log_verbose "Updated $timestamp_desc of '$directory' to match '$newest_file'"
+                    STATS_DIRS_UPDATED=$((STATS_DIRS_UPDATED + 1))
+                else
+                    echo "Warning: Could not update timestamp of '$directory'" >&2
+                fi
             fi
         else
             log_verbose "Directory '$directory' is empty, leaving timestamp unchanged"
+            STATS_DIRS_EMPTY=$((STATS_DIRS_EMPTY + 1))
         fi
-    done
+        
+        # Update progress bar
+        update_progress
+    done < <(find "$dir" -depth -type d -not -path "*/.git" -not -path "*/.git/*")
 done
 
-# Final cleanup: remove empty directories (after timestamp updates)
+# Execute atomic operations if enabled
+if [[ "$ATOMIC_OPERATIONS" == "true" && ${#ATOMIC_OPERATIONS_LIST[@]} -gt 0 ]]; then
+    log_verbose "Executing ${#ATOMIC_OPERATIONS_LIST[@]} atomic operations..."
+    if execute_atomic_operations; then
+        log_verbose "All atomic operations completed successfully"
+    else
+        echo "Error: Atomic operations failed - some directories may not have been updated" >&2
+        exit 1
+    fi
+fi
+
+# Final cleanup: remove empty directories and 'auto' directories (after timestamp updates)
 if [[ "$CLEANUP_MACOS_FILES" == "true" ]]; then
-    log_verbose "Removing empty directories..."
+    log_verbose "Removing empty directories and 'auto' directories..."
     for dir in "$@"; do
+        # Remove directories named 'auto' (regardless of whether they're empty)
+        if [[ "$DRY_RUN" == "true" ]]; then
+            local auto_count
+            auto_count=$("$FIND_CMD" "$dir" -mindepth 1 -type d -name 'auto' 2>/dev/null | wc -l)
+            if (( auto_count > 0 )); then
+                echo "[DRY RUN] Would remove $auto_count 'auto' directories in $dir"
+                "$FIND_CMD" "$dir" -mindepth 1 -type d -name 'auto' -print 2>/dev/null | while IFS= read -r auto_dir; do
+                    echo "[DRY RUN]   Would remove: $auto_dir"
+                done
+                STATS_AUTO_DIRS_DELETED=$((STATS_AUTO_DIRS_DELETED + auto_count))
+            fi
+        else
+            local auto_count
+            auto_count=$("$FIND_CMD" "$dir" -mindepth 1 -type d -name 'auto' 2>/dev/null | wc -l)
+            if (( auto_count > 0 )); then
+                "$FIND_CMD" "$dir" -mindepth 1 -type d -name 'auto' -print 2>/dev/null | while IFS= read -r auto_dir; do
+                    log_verbose "Removing 'auto' directory: $auto_dir"
+                done
+                if "$FIND_CMD" "$dir" -mindepth 1 -type d -name 'auto' -exec rm -rf {} + 2>/dev/null; then
+                    log_verbose "Removed 'auto' directories in $dir"
+                    STATS_AUTO_DIRS_DELETED=$((STATS_AUTO_DIRS_DELETED + auto_count))
+                fi
+            fi
+        fi
+        
         # Remove empty directories, but don't remove the target directories themselves
-        "$FIND_CMD" "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null && \
-            log_verbose "Removed empty directories in $dir"
+        if [[ "$DRY_RUN" == "true" ]]; then
+            local empty_count
+            empty_count=$("$FIND_CMD" "$dir" -mindepth 1 -type d -empty 2>/dev/null | wc -l)
+            if (( empty_count > 0 )); then
+                echo "[DRY RUN] Would remove $empty_count empty directories in $dir"
+                STATS_EMPTY_DIRS_DELETED=$((STATS_EMPTY_DIRS_DELETED + empty_count))
+            fi
+        else
+            local empty_count
+            empty_count=$("$FIND_CMD" "$dir" -mindepth 1 -type d -empty 2>/dev/null | wc -l)
+            if "$FIND_CMD" "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null; then
+                log_verbose "Removed empty directories in $dir"
+                STATS_EMPTY_DIRS_DELETED=$((STATS_EMPTY_DIRS_DELETED + empty_count))
+            fi
+        fi
     done
 fi
 
-log_verbose "Directory timestamp update complete." 
+log_verbose "Directory timestamp update complete."
+
+# Show statistics if requested
+show_statistics 

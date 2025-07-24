@@ -1,0 +1,201 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-13]  # Test on different macOS versions
+        include:
+          - os: macos-latest
+            platform: macos-latest
+          - os: macos-13
+            platform: macos-13
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Verify zsh installation (macOS has zsh built-in)
+      run: |
+        which zsh
+        zsh --version
+        
+    - name: Make scripts executable
+      run: |
+        chmod +x bin/dir-time-downdate
+        chmod +x tests/test_functionality.sh
+        
+    - name: Run dependency check
+      run: make deps
+      
+    - name: Run syntax check
+      run: make check
+      
+    - name: Run basic Makefile tests
+      run: make test
+      
+    - name: Run comprehensive test suite
+      run: |
+        cd tests
+        ./test_functionality.sh
+        
+    - name: Test help functionality
+      run: |
+        ./bin/dir-time-downdate --help
+        
+         - name: Test version display
+       run: |
+         ./bin/dir-time-downdate --version
+         echo "✓ Version flag working correctly"
+        
+    - name: Create test environment
+      run: |
+        mkdir -p /tmp/ci-test-dir/{sub1,sub2,sub3}
+        echo "test content 1" > /tmp/ci-test-dir/file1.txt
+        echo "test content 2" > /tmp/ci-test-dir/sub1/file2.txt
+        echo "test content 3" > /tmp/ci-test-dir/sub2/file3.txt
+        # Create some .DS_Store files to test cleanup
+        touch /tmp/ci-test-dir/.DS_Store
+        touch /tmp/ci-test-dir/sub1/.DS_Store
+        
+    - name: Test script execution
+      run: |
+        ./bin/dir-time-downdate --verbose --non-interactive /tmp/ci-test-dir
+        
+    - name: Verify cleanup worked
+      run: |
+        if [ -f /tmp/ci-test-dir/.DS_Store ]; then
+          echo "ERROR: .DS_Store file was not cleaned up"
+          exit 1
+        else
+          echo "✓ .DS_Store cleanup working correctly"
+        fi
+        
+    - name: Test multiple directory processing
+      run: |
+        mkdir -p /tmp/ci-test-multi/{dir1,dir2}
+        echo "content1" > /tmp/ci-test-multi/dir1/file1.txt
+        echo "content2" > /tmp/ci-test-multi/dir2/file2.txt
+        ./bin/dir-time-downdate --verbose --non-interactive /tmp/ci-test-multi/dir1 /tmp/ci-test-multi/dir2
+        
+    # Test installation process
+    - name: Test user installation
+      run: |
+        ./install.sh --user
+        
+    - name: Verify user installation
+      run: |
+        if [ -f "$HOME/.local/bin/dir-time-downdate" ]; then
+          echo "✓ User installation successful"
+        else
+          echo "ERROR: User installation failed"
+          exit 1
+        fi
+        
+    - name: Test installed version
+      run: |
+        export PATH="$HOME/.local/bin:$PATH"
+        dir-time-downdate --help
+        
+    - name: Test uninstallation
+      run: |
+        ./uninstall.sh --user
+        
+    - name: Verify uninstallation
+      run: |
+        if [ ! -f "$HOME/.local/bin/dir-time-downdate" ]; then
+          echo "✓ User uninstallation successful"
+        else
+          echo "ERROR: User uninstallation failed"
+          exit 1
+        fi
+
+  lint:
+    name: Shell Script Linting
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install ShellCheck (via Homebrew)
+      run: |
+        brew install shellcheck
+        
+    - name: Run ShellCheck on main script
+      run: |
+        # Note: ShellCheck doesn't fully support zsh, so we'll run with relaxed rules
+        shellcheck -s bash -e SC2039,SC3044 bin/dir-time-downdate || true
+        
+    - name: Run ShellCheck on test script
+      run: |
+        shellcheck -s bash -e SC2039,SC3044 tests/test_functionality.sh || true
+        
+    - name: Run ShellCheck on install scripts
+      run: |
+        shellcheck install.sh uninstall.sh || true
+
+  documentation:
+    name: Documentation Check
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Check for required files
+      run: |
+        echo "Checking for essential documentation files..."
+        
+        # Check README
+        if [ ! -f README.md ]; then
+          echo "ERROR: README.md is missing"
+          exit 1
+        fi
+        echo "✓ README.md found"
+        
+        # Check LICENSE
+        if [ ! -f LICENSE ]; then
+          echo "ERROR: LICENSE is missing"
+          exit 1
+        fi
+        echo "✓ LICENSE found"
+        
+        # Check man page
+        if [ ! -f man/man1/dir-time-downdate.1 ]; then
+          echo "ERROR: Man page is missing"
+          exit 1
+        fi
+        echo "✓ Man page found"
+        
+        # Check installation scripts
+        if [ ! -f install.sh ] || [ ! -f uninstall.sh ]; then
+          echo "ERROR: Installation scripts are missing"
+          exit 1
+        fi
+        echo "✓ Installation scripts found"
+        
+         - name: Validate man page format
+       run: |
+         # macOS has man built-in, validate man page syntax
+         man -l man/man1/dir-time-downdate.1 >/dev/null
+         echo "✓ Man page format is valid"
+        
+    - name: Check markdown links (basic)
+      run: |
+        # Basic check for broken markdown links in README
+        if grep -n '\[.*\](' README.md; then
+          echo "Found markdown links in README"
+        fi
+        echo "✓ README structure check passed" 

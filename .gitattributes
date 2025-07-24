@@ -1,0 +1,30 @@
+# Set default behavior for all files
+* text=auto
+
+# Explicitly declare text files with Unix line endings
+*.sh text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.1 text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Makefile text eol=lf
+LICENSE text eol=lf
+VERSION text eol=lf
+
+# Declare files that should always have CRLF line endings on checkout
+*.bat text eol=crlf
+
+# Denote all files that are truly binary and should not be modified
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.dmg binary
+*.zip binary
+*.tar.gz binary
+
+# Special handling for .DS_Store files (they are binary)
+.DS_Store binary
+*/.DS_Store binary 

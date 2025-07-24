@@ -1,27 +1,39 @@
 # .DS_Store Management Guide
 
-This document explains the two approaches to .DS_Store file management provided by `dir-time-downdate`.
+This document explains the two approaches to .DS_Store file management provided by `dir-time-downdate` using the user-provided template system.
 
 ## Overview
 
-The `dir-time-downdate` tool provides sophisticated .DS_Store file management to ensure directory timestamps accurately reflect content activity while maintaining clean file systems.
+The `dir-time-downdate` tool provides sophisticated .DS_Store file management using user-provided templates. This ensures directory timestamps accurately reflect content activity while maintaining clean file systems with consistent Finder behavior.
 
 ## Approach 1: File Copy Method (Default)
 
 ### How It Works
-When using the `--create-empty-dsstore` option, the tool:
+When .DS_Store management is needed (automatic detection), the tool:
 
-1. **Creates template-based .DS_Store files** in every directory
+1. **Creates template-based .DS_Store files** using your configured template
 2. **Sets timestamps to Unix epoch** (January 1, 1970) to minimize timestamp interference
-3. **Uses a master template** for consistent content across all created files
+3. **Uses your personal template** for consistent content across all created files
+
+### Template Configuration
+```bash
+# First, configure your template (one-time setup)
+dir-time-downdate --set-template ~/Documents/.DS_Store
+
+# Verify your configuration
+dir-time-downdate --show-template
+```
 
 ### Usage
 ```bash
-# Create .DS_Store files with epoch timestamps
-dir-time-downdate --create-empty-dsstore /path/to/directory
+# Automatic .DS_Store management (detects macOS or existing .DS_Store files)
+dir-time-downdate /path/to/directory
 
 # Combine with verbose output to see what's happening
-dir-time-downdate --verbose --create-empty-dsstore /path/to/directory
+dir-time-downdate --verbose /path/to/directory
+
+# Use a specific template for one operation
+dir-time-downdate --template ~/special/.DS_Store /path/to/directory
 ```
 
 ### Benefits
@@ -37,22 +49,24 @@ dir-time-downdate --verbose --create-empty-dsstore /path/to/directory
 ## Approach 2: Symlink-Based Method (Advanced)
 
 ### How It Works
-The `dsstore/` directory demonstrates a centralized management approach:
+This approach uses a centralized management system with your own template:
 
-1. **`.DS_Store_master`** contains the actual Finder preferences
-2. **`.DS_Store`** is a symbolic link pointing to the master file
-3. **Symlink maintains epoch timestamp** while master reflects actual changes
+1. **Your template file** contains the actual Finder preferences
+2. **`.DS_Store`** files are symbolic links pointing to your template
+3. **Symlinks maintain epoch timestamp** while template reflects actual changes
 4. **Changes propagate automatically** through the symlink
 
 ### Manual Setup
 ```bash
-# First, find your installed template file location:
-# System install: /usr/local/share/dir-time-downdate/.DS_Store_master
-# User install: ~/.local/share/dir-time-downdate/.DS_Store_master  
-# Home install: ~/share/dir-time-downdate/.DS_Store_master
+# First, ensure you have a template configured
+dir-time-downdate --show-template
 
-# In any directory where you want centralized management:
-ln -s /usr/local/share/dir-time-downdate/.DS_Store_master .DS_Store
+# Create a centralized template location (example)
+mkdir -p ~/Templates/finder-settings
+cp ~/Documents/.DS_Store ~/Templates/finder-settings/.DS_Store_master
+
+# In directories where you want centralized management:
+ln -s ~/Templates/finder-settings/.DS_Store_master .DS_Store
 
 # Set the symlink timestamp to epoch
 touch -t 197001010000 .DS_Store
@@ -71,14 +85,14 @@ touch -t 197001010000 .DS_Store
 
 ## Template File Management
 
-### Template File Locations
-After installation, the tool searches for template files in standard system locations:
+### User-Provided Templates
+The tool uses templates that you provide and configure:
 
-1. **System install**: `/usr/local/share/dir-time-downdate/.DS_Store_master`
-2. **User install**: `~/.local/share/dir-time-downdate/.DS_Store_master`  
-3. **Home install**: `~/share/dir-time-downdate/.DS_Store_master`
+1. **Find existing .DS_Store files**: `find ~ -name ".DS_Store" -type f | head -5`
+2. **Configure your template**: `dir-time-downdate --set-template /path/to/.DS_Store`
+3. **View configuration**: `dir-time-downdate --show-template`
 
-**Note**: The tool does NOT look in development directories. Template files must be properly installed using the installation scripts.
+**Note**: The tool does NOT install template files. You must provide your own templates from folders you've customized in Finder.
 
 ### Creating Custom Templates
 To create a custom .DS_Store template:
@@ -119,14 +133,14 @@ The tool preserves important timestamps:
 
 ### Common Issues
 
-#### Template File Not Found
+#### Template Not Configured
 ```
-Error: .DS_Store template not found. Expected at one of:
-  ./dsstore/.DS_Store_master (development)
-  /usr/local/share/dir-time-downdate/.DS_Store_master (system install)
+Error: No .DS_Store template configured.
+Please configure a template first:
+  dir-time-downdate --set-template /path/to/your/.DS_Store
 ```
 
-**Solution**: Ensure the tool is properly installed or run from the project directory.
+**Solution**: Find an existing .DS_Store file and configure it as your template.
 
 #### Permission Denied
 ```
@@ -212,7 +226,7 @@ The tool:
 # Example backup preparation script
 
 # Clean timestamps and create .DS_Store files
-dir-time-downdate --non-interactive --create-empty-dsstore "$BACKUP_DIR"
+        dir-time-downdate --non-interactive "$BACKUP_DIR"
 
 # Create archive with clean timestamps
 tar -czf "backup-$(date +%Y%m%d).tar.gz" "$BACKUP_DIR"
@@ -221,7 +235,7 @@ tar -czf "backup-$(date +%Y%m%d).tar.gz" "$BACKUP_DIR"
 ### Cron Job Example
 ```bash
 # Daily timestamp cleanup for project directories
-0 2 * * * /usr/local/bin/dir-time-downdate --non-interactive --create-empty-dsstore ~/Projects
+0 2 * * * /usr/local/bin/dir-time-downdate --non-interactive ~/Projects
 ```
 
 ### Custom Template Deployment
@@ -229,7 +243,7 @@ tar -czf "backup-$(date +%Y%m%d).tar.gz" "$BACKUP_DIR"
 #!/bin/bash
 # Deploy custom .DS_Store template to project directories
 
-TEMPLATE="/usr/local/share/dir-time-downdate/.DS_Store_master"
+TEMPLATE="$HOME/Documents/.DS_Store"  # Use your configured template
 PROJECTS_DIR="$HOME/Projects"
 
 find "$PROJECTS_DIR" -type d -name ".git" -prune -o -type d -print | while read dir; do
