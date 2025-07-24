@@ -338,7 +338,7 @@ fi
 
 # macOS-specific: prompt to close Finder windows
 if [[ "$INTERACTIVE_MODE" == "true" && "$OSTYPE" == darwin* ]]; then
-    if pgrep -qxF "Finder"; then
+    if pgrep -qxF "Finder" >/dev/null 2>&1; then
         log_info "Finder is running. Close all open Finder windows to avoid conflicts."
         log_info "Press Enter to continue..."
         read -r
