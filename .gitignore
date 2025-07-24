@@ -10,9 +10,10 @@
 
 # Development and documentation tools
 .specstory/                    # SpecStory development documentation
-prompts                        # Prompt files (file)
-prompts/                       # Prompt files (directory)
-prompts_local/                 # Local/personal prompts directory
+prompts                        # Prompt files/directories/symlinks
+prompts/                       # Prompt directories (explicit)
+prompts_local                  # Local/personal prompts (files/directories/symlinks)
+prompts_local/                 # Local/personal prompts directories (explicit)
 
 # Configuration files (user-specific)
 .dir-time-downdate.conf        # User-specific configuration

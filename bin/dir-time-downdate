@@ -293,7 +293,7 @@ should_manage_dsstore() {
 check_for_version_mismatch() {
     # If we are in the dev directory and the script running is NOT the one in ./bin...
     local executing_script_path
-    executing_script_path=$(realpath "$0")
+    executing_script_path=$(realpath "${(%):-%x}")
     local local_dev_path
     local_dev_path="$(pwd)/bin/dir-time-downdate"
 
