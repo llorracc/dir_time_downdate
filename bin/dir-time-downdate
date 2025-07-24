@@ -243,10 +243,37 @@ generate_user_template() {
 
     log_verbose "Setting template timestamp to Unix epoch..."
     touch -t 197001010000 "$dest_template"
-    chmod 644 "$dest_template"
+    chmod 444 "$dest_template"
+    log_success "Successfully created read-only template: $dest_template"
 
-    log_success "Successfully created and configured template: $dest_template"
-    set_template_config "$dest_template" # This will save and exit
+    # Create the helper script to make it writable again
+    local helper_script_path="$USER_CONFIG_DIR/.DS_Store_template-is-read-only"
+    cat > "$helper_script_path" <<'EOF'
+#!/bin/sh
+# This script makes the .DS_Store_template file in this directory writable.
+
+# The template is read-only by default to prevent accidental modification by you or by macOS Finder.
+# If you need to delete this template or replace it with your own, you must first make it writable.
+#
+# To do so, run this script from your terminal:
+# sh ./.DS_Store_template-is-read-only
+#
+# If you manually replace the template, please remember to make your new template read-only to protect it:
+# chmod 444 .DS_Store_template
+
+echo "Making .DS_Store_template writable..."
+chmod u+w "$(dirname "$0")/.DS_Store_template"
+echo "Done. You can now modify or delete the template file."
+EOF
+    chmod 755 "$helper_script_path"
+    log_verbose "Created helper script to manage template permissions: $helper_script_path"
+
+    # Now, update the configuration file
+    set_template_config "$dest_template"
+    
+    log_success "Configuration has been updated to use the new template."
+    log_info "Run 'dir-time-downdate --show-template' to see details."
+    exit 0
 }
 
 should_manage_dsstore() {

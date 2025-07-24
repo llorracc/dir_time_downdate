@@ -150,16 +150,20 @@ uninstall_system_config() {
 # Remove user configuration files
 remove_user_configs() {
     local dry_run=${1:-false}
-    local user_config_dir="$HOME/.config/dir-time-downdate"
+    local user_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/dir-time-downdate"
     local old_config_file="$HOME/.dir-time-downdate.conf"
-    
+    local user_template_file="$user_config_dir/.DS_Store_template"
+
     if [[ "$dry_run" == "true" ]]; then
         info "DRY RUN - Would remove user configuration:"
+        if [[ -f "$user_template_file" && ! -w "$user_template_file" ]]; then
+            echo "  - Would make template writable: $user_template_file"
+        fi
         if [[ -d "$user_config_dir" ]]; then
-            echo "  - Directory: $user_config_dir"
+            echo "  - Would remove directory: $user_config_dir"
         fi
         if [[ -f "$old_config_file" ]]; then
-            echo "  - Legacy config: $old_config_file"
+            echo "  - Would remove legacy config: $old_config_file"
         fi
         if [[ ! -d "$user_config_dir" && ! -f "$old_config_file" ]]; then
             echo "  - No user configuration found"
@@ -170,6 +174,12 @@ remove_user_configs() {
         local removed_something=false
         
         if [[ -d "$user_config_dir" ]]; then
+            # Make the template writable before trying to delete the directory
+            if [[ -f "$user_template_file" && ! -w "$user_template_file" ]]; then
+                info "Making read-only template writable before removal..."
+                chmod u+w "$user_template_file"
+            fi
+            
             rm -rf "$user_config_dir"
             info "✓ Removed user config directory: $user_config_dir"
             removed_something=true
