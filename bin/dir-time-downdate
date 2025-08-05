@@ -115,6 +115,7 @@ show_help() {
     echo "  --verbose, -v          Show detailed (verbose) progress messages."
     echo "  --quiet, -q            Suppress all informational output except errors."
     echo "  --dry-run              Show what would be changed without making any changes."
+    echo "  --exclude PATTERN, -e  Exclude directories matching PATTERN from processing."
     echo "  --version              Show script version."
     echo "  --help, -h             Show this help message."
     echo ""
