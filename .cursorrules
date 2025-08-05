@@ -7,7 +7,7 @@ This is the `dir-time-downdate` tool - a script that recursively updates directo
 Please review the following preparation prompt for context on the current work:
 
 ```markdown
-@prompts_local/20250804-2017h_prepare-for-fix-unbalanced-if-fi.md
+@prompts_local/20250805-1013h_prepare-for-ai-driven-codebase-improvements.md
 ```
 
 ## General Guidelines
