@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
 # Change directory timestamps recursively to match the newest file.
 set -euo pipefail
 
@@ -14,6 +14,7 @@ SHOW_HELP=false
 QUIET_MODE=false
 GENERATE_USER_TEMPLATE=false
 VERSION="0.3.0" # Versioning
+EXCLUDE_PATTERNS=()
 
 # --- Statistics Tracking ---
 STATS_DIRS_PROCESSED=0
@@ -211,7 +212,7 @@ set_template_config() {
 
 show_template_config() {
     log_info "--- .DS_Store Template Configuration ---"
-    # Effective Template (highest priority)
+    # Effective Template - highest priority
     log_info "Effective Template: ${DSSTORE_TEMPLATE:-Not set}"
     if [[ -n "$DSSTORE_TEMPLATE" && ! -f "$DSSTORE_TEMPLATE" ]]; then
         log_warning "The configured template file does not exist."
@@ -301,11 +302,8 @@ should_manage_dsstore() {
 
 check_for_version_mismatch() {
     # If we are in the dev directory and the script running is NOT the one in ./bin...
-    if [[ "$0" = /* ]]; then
-        executing_script_path="$0"
-    else
-        executing_script_path="$PWD/$0"
-    fi
+    local executing_script_path
+    executing_script_path=$(realpath "${(%):-%x}")
     local local_dev_path
     local_dev_path="$(pwd)/bin/dir-time-downdate"
 
@@ -369,13 +367,13 @@ fi
 
 # Cleanup Phase
 if [[ "$CLEANUP_MACOS_FILES" == "true" ]]; then
-    # ... (cleanup logic can be restored here if needed)
+    # cleanup logic can be restored here if needed
 fi
 
 # .DS_Store Creation Phase
 if should_manage_dsstore "$@"; then
     if [[ -n "$DSSTORE_TEMPLATE" && -f "$DSSTORE_TEMPLATE" ]]; then
-        # ... (.DS_Store creation logic)
+        # .DS_Store creation logic
     else
         log_warning "Cannot manage .DS_Store files: No template is available."
         log_warning "Run with --generate-user-template or --set-template."
@@ -383,53 +381,49 @@ if should_manage_dsstore "$@"; then
 fi
 
 # Main Processing Loop
-SCRIPT_WAS_DRY_RUN=$DRY_RUN
-CHANGES_WOULD_BE_MADE=false
+local SCRIPT_WAS_DRY_RUN=$DRY_RUN
+local CHANGES_WOULD_BE_MADE=false
 
 for dir in "$@"; do
     log_verbose "Processing directory: $dir"
 
-    # Build prune arguments for find
+    # Build prune arguments for excluded patterns
     prune_args=()
     for pattern in "${EXCLUDE_PATTERNS[@]}"; do
         norm_pattern="${pattern#./}"
         prune_args+=( -name "$norm_pattern" -prune -o )
     done
 
-    # Collect all directories, skipping pruned ones
-    all_dirs=()
+    # Process directories in depth-first order
     while IFS= read -r directory; do
-        [[ -d "$directory" ]] || continue
-        all_dirs+=("$directory")
-    done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
+        [[ -d "$directory" ]] || continue # Skip if directory no longer exists
 
-    # Process directories in post-order (deepest first)
-    for (( idx=${#all_dirs[@]}-1 ; idx>=0 ; idx-- )); do
-        directory="${all_dirs[$idx]}"
-        # Build exclusion for file-level find (skip files in excluded dirs)
+        # Build exclusion for file-level find - skip files in excluded dirs
         file_exclude_args=()
         for pattern in "${EXCLUDE_PATTERNS[@]}"; do
             norm_pattern="${pattern#./}"
             file_exclude_args+=( -not -path "$directory/$norm_pattern/*" -not -name "$norm_pattern" )
         done
 
-        # Find the newest file or subdirectory within the current directory (not recursively)
-        newest_file=""
-        newest_time=0
+        # Find the newest file or subdirectory within the current directory - not recursively
+        local newest_file=""
+        local newest_time=0
+        
         while IFS= read -r item; do
             STATS_FILES_SCANNED=$((STATS_FILES_SCANNED + 1))
-            item_time=0
+            typeset -i item_time=0 >/dev/null 2>&1
             item_time=$(stat -f %m "$item") >/dev/null 2>&1
             if (( item_time > newest_time )); then
                 newest_time=$item_time
                 newest_file=$item
             fi
         done < <(find "$directory" -maxdepth 1 -mindepth 1 -not -name ".git" -not -name ".DS_Store" "${file_exclude_args[@]}")
-
+        
         # Update directory timestamp if we found files
         if [[ -n "$newest_file" ]]; then
-            dir_time=0
+            typeset -i dir_time=0 >/dev/null 2>&1
             dir_time=$(stat -f %m "$directory") >/dev/null 2>&1
+            
             # Only update if the timestamps are different
             if (( newest_time != dir_time )); then
                 CHANGES_WOULD_BE_MADE=true
@@ -446,7 +440,7 @@ for dir in "$@"; do
         else
             log_verbose "Directory '$directory' is empty, leaving timestamp unchanged."
         fi
-    done
+    done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
 done
 
 if [[ "$SCRIPT_WAS_DRY_RUN" == "true" && "$CHANGES_WOULD_BE_MADE" == "false" ]]; then
