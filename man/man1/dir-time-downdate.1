@@ -127,7 +127,7 @@ Update only modification times:
 .B dir-time-downdate --timestamps mtime ~/Documents
 .TP
 Exclude specific patterns:
-.B dir-time-downdate --exclude "*.tmp" --exclude ".cache" ~/workspace
+.B dir-time-downdate --exclude "node_modules" --exclude "build" ~/workspace
 .TP
 Show progress and statistics:
 .B dir-time-downdate --show-progress --show-stats --verbose ~/large-directory
@@ -175,7 +175,8 @@ Version control directories are automatically excluded from processing:
 .BR _darcs ,
 .BR .fossil-settings
 
-Additional patterns can be excluded using the \fB\-\-exclude\fR option.
+Additional patterns can be excluded using the \fB--exclude\fR or \fB-e\fR option. For example:
+.B dir-time-downdate --exclude "node_modules" --exclude "build" ~/workspace
 
 .SH EXIT STATUS
 .TP

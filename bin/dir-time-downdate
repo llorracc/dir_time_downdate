@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 # Change directory timestamps recursively to match the newest file.
 set -euo pipefail
 
@@ -71,6 +71,15 @@ while [[ $# -gt 0 ]]; do
         --dry-run)
             DRY_RUN=true
             shift
+            ;;
+        --exclude|-e)
+            if [[ -n "$2" ]]; then
+                EXCLUDE_PATTERNS+=("$2")
+                shift 2
+            else
+                echo "Error: --exclude requires a pattern" >&2
+                exit 1
+            fi
             ;;
         --version)
             echo "dir-time-downdate version $VERSION"
@@ -292,8 +301,11 @@ should_manage_dsstore() {
 
 check_for_version_mismatch() {
     # If we are in the dev directory and the script running is NOT the one in ./bin...
-    local executing_script_path
-    executing_script_path=$(realpath "${(%):-%x}")
+    if [[ "$0" = /* ]]; then
+        executing_script_path="$0"
+    else
+        executing_script_path="$PWD/$0"
+    fi
     local local_dev_path
     local_dev_path="$(pwd)/bin/dir-time-downdate"
 
@@ -371,35 +383,53 @@ if should_manage_dsstore "$@"; then
 fi
 
 # Main Processing Loop
-local SCRIPT_WAS_DRY_RUN=$DRY_RUN
-local CHANGES_WOULD_BE_MADE=false
+SCRIPT_WAS_DRY_RUN=$DRY_RUN
+CHANGES_WOULD_BE_MADE=false
 
 for dir in "$@"; do
     log_verbose "Processing directory: $dir"
 
-    # Process directories in depth-first order
+    # Build prune arguments for find
+    prune_args=()
+    for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+        norm_pattern="${pattern#./}"
+        prune_args+=( -name "$norm_pattern" -prune -o )
+    done
+
+    # Collect all directories, skipping pruned ones
+    all_dirs=()
     while IFS= read -r directory; do
-        [[ -d "$directory" ]] || continue # Skip if directory no longer exists
+        [[ -d "$directory" ]] || continue
+        all_dirs+=("$directory")
+    done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
+
+    # Process directories in post-order (deepest first)
+    for (( idx=${#all_dirs[@]}-1 ; idx>=0 ; idx-- )); do
+        directory="${all_dirs[$idx]}"
+        # Build exclusion for file-level find (skip files in excluded dirs)
+        file_exclude_args=()
+        for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+            norm_pattern="${pattern#./}"
+            file_exclude_args+=( -not -path "$directory/$norm_pattern/*" -not -name "$norm_pattern" )
+        done
 
         # Find the newest file or subdirectory within the current directory (not recursively)
-        local newest_file=""
-        local newest_time=0
-        
+        newest_file=""
+        newest_time=0
         while IFS= read -r item; do
             STATS_FILES_SCANNED=$((STATS_FILES_SCANNED + 1))
-            typeset -i item_time=0 >/dev/null 2>&1
+            item_time=0
             item_time=$(stat -f %m "$item") >/dev/null 2>&1
             if (( item_time > newest_time )); then
                 newest_time=$item_time
                 newest_file=$item
             fi
-        done < <(find "$directory" -maxdepth 1 -mindepth 1 -not -name ".git" -not -name ".DS_Store")
-        
+        done < <(find "$directory" -maxdepth 1 -mindepth 1 -not -name ".git" -not -name ".DS_Store" "${file_exclude_args[@]}")
+
         # Update directory timestamp if we found files
         if [[ -n "$newest_file" ]]; then
-            typeset -i dir_time=0 >/dev/null 2>&1
+            dir_time=0
             dir_time=$(stat -f %m "$directory") >/dev/null 2>&1
-            
             # Only update if the timestamps are different
             if (( newest_time != dir_time )); then
                 CHANGES_WOULD_BE_MADE=true
@@ -416,7 +446,7 @@ for dir in "$@"; do
         else
             log_verbose "Directory '$directory' is empty, leaving timestamp unchanged."
         fi
-    done < <(find "$dir" -depth -type d -not -path '*/.git/*' -not -name ".git")
+    done
 done
 
 if [[ "$SCRIPT_WAS_DRY_RUN" == "true" && "$CHANGES_WOULD_BE_MADE" == "false" ]]; then

@@ -1,0 +1,17 @@
+# Cursor Rules for dir_time_downdate Project
+
+## Project Context
+This is the `dir-time-downdate` tool - a script that recursively updates directory timestamps to match their newest content files.
+
+## Current Session Preparation
+Please review the following preparation prompt for context on the current work:
+
+```markdown
+@prompts_local/20250804-2017h_prepare-for-fix-unbalanced-if-fi.md
+```
+
+## General Guidelines
+- Follow existing code patterns and conventions
+- Test changes incrementally, especially for shell script modifications
+- Use `bash -n` to validate syntax before running scripts
+- Maintain compatibility with both macOS and Linux environments 
