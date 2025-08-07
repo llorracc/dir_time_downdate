@@ -431,7 +431,7 @@ for dir in "$@"; do
         else
             log_verbose "Directory '$directory' is empty, leaving timestamp unchanged."
         fi
-    done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
+    done < <(find "$dir" -depth \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
 done
 
 if [[ "$SCRIPT_WAS_DRY_RUN" == "true" && "$CHANGES_WOULD_BE_MADE" == "false" ]]; then
@@ -511,7 +511,7 @@ if should_manage_dsstore "$@"; then
                         STATS_DSSTORE_CREATED=$((STATS_DSSTORE_CREATED + 1))
                     fi
                 fi
-            done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
+            done < <(find "$dir" -depth \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
         done
     else
         log_warning "Cannot manage .DS_Store files: No template is available."
