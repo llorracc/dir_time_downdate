@@ -371,84 +371,7 @@ if [[ "$CLEANUP_MACOS_FILES" == "true" ]]; then
     # cleanup logic can be restored here if needed
 fi
 
-# .DS_Store Creation Phase
-if should_manage_dsstore "$@"; then
-    if [[ -n "$DSSTORE_TEMPLATE" && -f "$DSSTORE_TEMPLATE" ]]; then
-        log_verbose "Creating read-only .DS_Store files from template: $DSSTORE_TEMPLATE"
-        
-        # Find all directories that need .DS_Store files
-        for dir in "$@"; do
-            # Use similar exclusion logic as main processing
-            prune_args=()
-            for pattern in "${EXCLUDE_PATTERNS[@]}"; do
-                norm_pattern="${pattern#./}"
-                prune_args+=( -name "$norm_pattern" -prune -o )
-            done
-            
-            # Find directories that either have .DS_Store files or need them
-            while IFS= read -r target_dir; do
-                [[ -d "$target_dir" ]] || continue
-                
-                local dsstore_path="$target_dir/.DS_Store"
-                local should_create=false
-                
-                # Check if directory already has a .DS_Store file (replace it)
-                if [[ -f "$dsstore_path" ]]; then
-                    log_verbose "Replacing existing .DS_Store in: $target_dir"
-                    should_create=true
-                # Or create in directories that have other files (prevent future .DS_Store creation)
-                elif find "$target_dir" -maxdepth 1 -mindepth 1 -not -name ".DS_Store" | grep -q .; then
-                    log_verbose "Creating preventive .DS_Store in: $target_dir"
-                    should_create=true
-                fi
-                
-                if [[ "$should_create" == "true" ]]; then
-                    if [[ "$DRY_RUN" == "true" ]]; then
-                        log_info "[DRY RUN] Would create read-only .DS_Store in '$target_dir'"
-                    else
-                        # Store original directory permissions and timestamp
-                        local dir_perms=$(stat -f %A "$target_dir")
-                        local dir_timestamp=$(stat -f %m "$target_dir")
-                        local dir_was_readonly=false
-                        
-                        # Handle existing read-only .DS_Store files
-                        if [[ -f "$dsstore_path" ]]; then
-                            chmod u+w "$dsstore_path"  # Make writable temporarily
-                            rm -f "$dsstore_path"      # Remove old file
-                        fi
-                        
-                        # Handle read-only directories
-                        if [[ ! -w "$target_dir" ]]; then
-                            chmod u+w "$target_dir"    # Make directory writable temporarily
-                            dir_was_readonly=true
-                        fi
-                        
-                        # Copy template and set proper permissions
-                        cp "$DSSTORE_TEMPLATE" "$dsstore_path"
-                        chmod 444 "$dsstore_path"
-                        touch -t 197001010000 "$dsstore_path"  # Set to Unix epoch
-                        
-                        # Restore original directory permissions and timestamp
-                        if [[ "$dir_was_readonly" == "true" ]]; then
-                            chmod "$dir_perms" "$target_dir"
-                        fi
-                        
-                        # Restore original directory timestamp (creating .DS_Store changes it)
-                        touch -t $(date -r "$dir_timestamp" +%Y%m%d%H%M.%S) "$target_dir"
-                        
-                        log_verbose "Created read-only .DS_Store: $dsstore_path"
-                        STATS_DSSTORE_CREATED=$((STATS_DSSTORE_CREATED + 1))
-                    fi
-                fi
-            done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
-        done
-    else
-        log_warning "Cannot manage .DS_Store files: No template is available."
-        log_warning "Run with --generate-user-template or --set-template."
-    fi
-fi
-
-# Main Processing Loop
+# Main Processing Loop (do timestamp sync FIRST)
 local SCRIPT_WAS_DRY_RUN=$DRY_RUN
 local CHANGES_WOULD_BE_MADE=false
 
@@ -514,6 +437,89 @@ done
 if [[ "$SCRIPT_WAS_DRY_RUN" == "true" && "$CHANGES_WOULD_BE_MADE" == "false" ]]; then
     log_info "All directory timestamps are already up to date. No changes needed."
 fi
+
+# .DS_Store Creation Phase (AFTER timestamp sync)
+if should_manage_dsstore "$@"; then
+    if [[ -n "$DSSTORE_TEMPLATE" && -f "$DSSTORE_TEMPLATE" ]]; then
+        log_verbose "Creating read-only .DS_Store files from template: $DSSTORE_TEMPLATE"
+        
+        # Find all directories that need .DS_Store files
+        for dir in "$@"; do
+            # Use similar exclusion logic as main processing
+            prune_args=()
+            for pattern in "${EXCLUDE_PATTERNS[@]}"; do
+                norm_pattern="${pattern#./}"
+                prune_args+=( -name "$norm_pattern" -prune -o )
+            done
+            
+            # Find directories that either have .DS_Store files or need them
+            while IFS= read -r target_dir; do
+                [[ -d "$target_dir" ]] || continue
+                
+                local dsstore_path="$target_dir/.DS_Store"
+                local should_create=false
+                
+                # Check if directory already has a .DS_Store file (replace it)
+                if [[ -f "$dsstore_path" ]]; then
+                    log_verbose "Replacing existing .DS_Store in: $target_dir"
+                    should_create=true
+                # Or create in directories that have other files (prevent future .DS_Store creation)
+                elif find "$target_dir" -maxdepth 1 -mindepth 1 -not -name ".DS_Store" | grep -q .; then
+                    log_verbose "Creating preventive .DS_Store in: $target_dir"
+                    should_create=true
+                fi
+                
+                if [[ "$should_create" == "true" ]]; then
+                    if [[ "$DRY_RUN" == "true" ]]; then
+                        log_info "[DRY RUN] Would create read-only .DS_Store in '$target_dir'"
+                    else
+                        # Store original directory permissions and timestamp
+                        local dir_perms=$(stat -f %A "$target_dir")
+                        local dir_timestamp=$(stat -f %m "$target_dir")
+                        local dir_was_readonly=false
+                        
+                        # Handle existing read-only .DS_Store files
+                        if [[ -f "$dsstore_path" ]]; then
+                            chmod u+w "$dsstore_path"  # Make writable temporarily
+                            rm -f "$dsstore_path"      # Remove old file
+                        fi
+                        
+                        # Handle read-only directories
+                        if [[ ! -w "$target_dir" ]]; then
+                            chmod u+w "$target_dir"    # Make directory writable temporarily
+                            dir_was_readonly=true
+                        fi
+                        
+                        # Copy template and set proper permissions (use ditto for better macOS compatibility)
+                        if [[ "$OSTYPE" == darwin* ]]; then
+                            ditto "$DSSTORE_TEMPLATE" "$dsstore_path"
+                        else
+                            cp "$DSSTORE_TEMPLATE" "$dsstore_path"
+                        fi
+                        chmod 444 "$dsstore_path"
+                        touch -t 197001010000 "$dsstore_path"  # Set to Unix epoch
+                        
+                        # Restore original directory permissions and timestamp
+                        if [[ "$dir_was_readonly" == "true" ]]; then
+                            chmod "$dir_perms" "$target_dir"
+                        fi
+                        
+                        # Restore original directory timestamp (creating .DS_Store changes it)
+                        touch -t $(date -r "$dir_timestamp" +%Y%m%d%H%M.%S) "$target_dir"
+                        
+                        log_verbose "Created read-only .DS_Store: $dsstore_path"
+                        STATS_DSSTORE_CREATED=$((STATS_DSSTORE_CREATED + 1))
+                    fi
+                fi
+            done < <(find "$dir" \( -name ".git" -prune -o ${prune_args[@]} -type d -print \))
+        done
+    else
+        log_warning "Cannot manage .DS_Store files: No template is available."
+        log_warning "Run with --generate-user-template or --set-template."
+    fi
+fi
+
+
 
 log_success "Processing complete."
 log_info "Directories processed: $#."
