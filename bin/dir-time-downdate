@@ -406,8 +406,9 @@ if should_manage_dsstore "$@"; then
                     if [[ "$DRY_RUN" == "true" ]]; then
                         log_info "[DRY RUN] Would create read-only .DS_Store in '$target_dir'"
                     else
-                        # Store original directory permissions
+                        # Store original directory permissions and timestamp
                         local dir_perms=$(stat -f %A "$target_dir")
+                        local dir_timestamp=$(stat -f %m "$target_dir")
                         local dir_was_readonly=false
                         
                         # Handle existing read-only .DS_Store files
@@ -427,10 +428,13 @@ if should_manage_dsstore "$@"; then
                         chmod 444 "$dsstore_path"
                         touch -t 197001010000 "$dsstore_path"  # Set to Unix epoch
                         
-                        # Restore original directory permissions if needed
+                        # Restore original directory permissions and timestamp
                         if [[ "$dir_was_readonly" == "true" ]]; then
                             chmod "$dir_perms" "$target_dir"
                         fi
+                        
+                        # Restore original directory timestamp (creating .DS_Store changes it)
+                        touch -t $(date -r "$dir_timestamp" +%Y%m%d%H%M.%S) "$target_dir"
                         
                         log_verbose "Created read-only .DS_Store: $dsstore_path"
                         STATS_DSSTORE_CREATED=$((STATS_DSSTORE_CREATED + 1))
