@@ -9,7 +9,7 @@
 # =============================================================================
 
 # Development and documentation tools
-.specstory/ # SpecStory development documentation
+.specstory/
 prompts                        # Prompt files/directories/symlinks
 prompts/                       # Prompt directories (explicit)
 prompts_local                  # Local/personal prompts (files/directories/symlinks)
