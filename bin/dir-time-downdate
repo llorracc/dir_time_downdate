@@ -3,11 +3,11 @@
 set -euo pipefail
 
 # Self-contained logging functions (zsh compatible)
-log_info() { echo "[$(date '+%H:%M:%S')] INFO: $*"; }
+log_info() { [[ "$QUIET_MODE" != "true" ]] && echo "[$(date '+%H:%M:%S')] INFO: $*" || true; }
 log_warning() { echo "[$(date '+%H:%M:%S')] ⚠ WARNING: $*" >&2; }
 log_error() { echo "[$(date '+%H:%M:%S')] ✗ ERROR: $*" >&2; }
 log_verbose() { [[ "$VERBOSE" = true ]] && echo "[$(date '+%H:%M:%S')] VERBOSE: $*" || true; }
-log_success() { echo "[$(date '+%H:%M:%S')] ✅ SUCCESS: $*"; }
+log_success() { [[ "$QUIET_MODE" != "true" ]] && echo "[$(date '+%H:%M:%S')] ✅ SUCCESS: $*" || true; }
 setup_logging_environment() { :; }  # No-op for compatibility
 
 # --- Default Configuration ---
@@ -363,6 +363,14 @@ for dir in "$@"; do
     if [[ "$VERBOSE" == "true" && ${#EXCLUDE_PATTERNS[@]} -gt 0 ]]; then
         log_verbose "Exclude patterns (grep-style): ${EXCLUDE_PATTERNS[*]}"
     fi
+    
+    # Progress indicator for non-verbose mode
+    if [[ "$VERBOSE" != "true" && "$QUIET_MODE" != "true" ]]; then
+        log_info "Processing: $(basename "$dir")"
+        printf "Progress: "
+    fi
+    
+    local dir_count=0
 
     # Process directories in depth-first order
     while IFS= read -r directory; do
@@ -437,8 +445,26 @@ for dir in "$@"; do
             fi
         else
             log_verbose "Directory '$directory' is empty, leaving timestamp unchanged."
+            STATS_DIRS_EMPTY=$((STATS_DIRS_EMPTY + 1))
+        fi
+
+        STATS_DIRS_PROCESSED=$((STATS_DIRS_PROCESSED + 1))
+        dir_count=$((dir_count + 1))
+        
+        # Progress indicator: dot every 25 directories, count every 100
+        if [[ "$VERBOSE" != "true" && "$QUIET_MODE" != "true" ]]; then
+            if (( dir_count % 100 == 0 )); then
+                printf " %d" "$dir_count"
+            elif (( dir_count % 25 == 0 )); then
+                printf "."
+            fi
         fi
                 done < <(find "$dir" -depth -type d -print)
+                
+    # Finish progress line for non-verbose mode
+    if [[ "$VERBOSE" != "true" && "$QUIET_MODE" != "true" ]]; then
+        printf " (%d dirs)\n" "$dir_count"
+    fi
 done
 
 if [[ "$SCRIPT_WAS_DRY_RUN" == "true" && "$CHANGES_WOULD_BE_MADE" == "false" ]]; then
