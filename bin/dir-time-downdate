@@ -2,6 +2,14 @@
 # Change directory timestamps recursively to match the newest file.
 set -euo pipefail
 
+# Self-contained logging functions (zsh compatible)
+log_info() { echo "[$(date '+%H:%M:%S')] INFO: $*"; }
+log_warning() { echo "[$(date '+%H:%M:%S')] ⚠ WARNING: $*" >&2; }
+log_error() { echo "[$(date '+%H:%M:%S')] ✗ ERROR: $*" >&2; }
+log_verbose() { [[ "$VERBOSE" = true ]] && echo "[$(date '+%H:%M:%S')] VERBOSE: $*" || true; }
+log_success() { echo "[$(date '+%H:%M:%S')] ✅ SUCCESS: $*"; }
+setup_logging_environment() { :; }  # No-op for compatibility
+
 # --- Default Configuration ---
 CLEANUP_MACOS_FILES=true
 INTERACTIVE_MODE=true
@@ -129,32 +137,7 @@ show_help() {
     exit 0
 }
 
-# Logging functions that respect --quiet flag
-log_verbose() {
-    if [[ "$VERBOSE" == "true" && "$QUIET_MODE" == "false" ]]; then
-        echo "Verbose: $@"
-    fi
-}
-
-log_info() {
-    if [[ "$QUIET_MODE" == "false" ]]; then
-        echo "$@"
-    fi
-}
-
-log_warning() {
-    echo "Warning: $@" >&2
-}
-
-log_error() {
-    echo "Error: $@" >&2
-}
-
-log_success() {
-    if [[ "$QUIET_MODE" == "false" ]]; then
-        echo "Success: $@"
-    fi
-}
+# Self-contained logging functions (bash/zsh compatible)
 
 # XDG Configuration paths
 SYSTEM_CONFIG_DIR="/etc/xdg/dir-time-downdate"
